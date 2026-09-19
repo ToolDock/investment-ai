@@ -1,0 +1,8 @@
+# GitHub Actions（クラウド自動実行）およびローカル開発の両方で使う依存関係。
+# venv側の実インストール版（2026-09時点）に概ね合わせつつ、上限は緩めに固定。
+requests>=2.30,<3
+python-dotenv>=1.0,<2
+anthropic>=0.110,<1
+openai>=3.0,<4
+plotly>=6.0,<8
+apscheduler>=3.10,<4

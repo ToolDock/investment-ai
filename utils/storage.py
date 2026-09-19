@@ -1,0 +1,365 @@
+import json
+import math
+import os
+import random
+import sqlite3
+from datetime import datetime
+
+# 実験結果は市場データ収集用DB(investment_ai.db)とは分けて保存する
+DB_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "experiment_results.db"
+)
+
+# 中断からの再開は、開始（progress.created_at）からこの日数を過ぎたら無効にする
+RESUME_EXPIRY_DAYS = 7
+# 再開コードの文字種。0/O, 1/I など見間違えやすい文字は除く
+_RESUME_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+# クラウドワークス報酬（2026-09-16、本人と合意）：参加料 + 利益に応じたボーナス。
+# 利益＝最終資産 − 投入した元本の総額（現金・投資の内訳によらず一定。現金は増えないので
+# 多く残すほど利益は目減りする＝この不利は意図した設計として受け入れる）。
+# 利益がプラスの月だけ、30,000円ごとに切り上げで1円ボーナス。マイナス・0なら参加料のみ。
+REWARD_BASE_FEE = 10
+REWARD_BONUS_DIVISOR = 30000
+
+
+def compute_reward(final_asset, total_contributed):
+    """クラウドワークス報酬額（円）を返す。profit（利益）もあわせて返す。"""
+    profit = final_asset - total_contributed
+    bonus = math.ceil(profit / REWARD_BONUS_DIVISOR) if profit > 0 else 0
+    return REWARD_BASE_FEE + bonus, profit
+
+
+def get_connection():
+    # 複数参加者の同時アクセスに備えてロック待ちを許可する
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
+
+
+def init_results_db():
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # 参加者番号(participant_no)は内部で自動採番する
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS participants (
+            participant_no    INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id        TEXT UNIQUE,
+            group_no          INTEGER,
+            age               INTEGER,
+            gender            TEXT,
+            invest_experience TEXT,
+            invest_years      TEXT,
+            fin_self_rank     TEXT,
+            fin_score         INTEGER,
+            fin_conf_mean     REAL,
+            overconfidence    REAL,
+            initial_invest    INTEGER,
+            monthly_invest    INTEGER,
+            created_at        TEXT,
+            completed_at      TEXT,
+            final_asset       INTEGER,
+            profit            INTEGER,
+            reward_yen        INTEGER
+        )
+    """)
+
+    # 既存DB（この2列が無い状態で作られたもの）へのマイグレーション。
+    # CREATE TABLE IF NOT EXISTS は既存テーブルに新しい列を足してくれないため必要
+    existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(participants)")}
+    if "profit" not in existing_cols:
+        cur.execute("ALTER TABLE participants ADD COLUMN profit INTEGER")
+    if "reward_yen" not in existing_cols:
+        cur.execute("ALTER TABLE participants ADD COLUMN reward_yen INTEGER")
+
+    # 金融リテラシーの生回答（設問ごと）
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS fin_literacy (
+            participant_no INTEGER,
+            qid            TEXT,
+            answer         TEXT,
+            is_correct     INTEGER,
+            confidence     INTEGER,
+            PRIMARY KEY (participant_no, qid)
+        )
+    """)
+
+    # 全月1行記録（観察のみの月も残す）。is_event=相場変動月, engaged=行動フェーズに入ったか
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS responses (
+            session_id       TEXT,
+            month            INTEGER,
+            phase            TEXT,
+            return_rate      REAL,
+            is_event         INTEGER,
+            engaged          INTEGER,
+            action_label     TEXT,
+            total            INTEGER,
+            cash             INTEGER,
+            investment_value INTEGER,
+            pl_pct           REAL,
+            sell_amount      INTEGER,
+            buy_amount       INTEGER,
+            monthly_invest   INTEGER,
+            anxiety          INTEGER,
+            sell_impulse     INTEGER,
+            continue_invest  INTEGER,
+            created_at       TEXT,
+            PRIMARY KEY (session_id, month)
+        )
+    """)
+
+    # 群3で、どの参加者に・いつ・どの個人化枠が発火したか（操作チェック用）
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS personalization_log (
+            session_id TEXT,
+            month      INTEGER,
+            slot_id    TEXT,
+            created_at TEXT,
+            PRIMARY KEY (session_id, month)
+        )
+    """)
+
+    # 事後アンケート。設問idごとに1行（設問を足しても構造が変わらない）
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS post_survey (
+            session_id TEXT,
+            qid        TEXT,
+            answer     INTEGER,
+            text       TEXT,
+            created_at TEXT,
+            PRIMARY KEY (session_id, qid)
+        )
+    """)
+
+    # 中断・再開用の進捗スナップショット。st.session_state の再構築に必要な情報を
+    # まとめて state_json に持つ（型ごとに列を増やさず、復元側で dict として展開する）。
+    # created_at は最初の保存時刻のまま更新しない＝再開の期限判定の基準にする。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS progress (
+            session_id  TEXT PRIMARY KEY,
+            resume_code TEXT UNIQUE,
+            state_json  TEXT,
+            created_at  TEXT,
+            updated_at  TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def save_post_survey(session_id, answers, texts):
+    """answers: {qid: 1-5}, texts: {qid: 自由記述}"""
+    now = datetime.now().isoformat()
+    rows = [(session_id, q, v, None, now) for q, v in answers.items()]
+    rows += [(session_id, q, None, t, now) for q, t in texts.items() if (t or "").strip()]
+    conn = get_connection()
+    conn.executemany(
+        """INSERT OR REPLACE INTO post_survey
+           (session_id, qid, answer, text, created_at) VALUES (?, ?, ?, ?, ?)""", rows)
+    conn.commit()
+    conn.close()
+
+
+def create_participant(session_id, group_no, age, gender,
+                       invest_experience, invest_years,
+                       fin_self_rank, fin_score, fin_conf_mean, overconfidence,
+                       initial_invest, monthly_invest):
+    """参加者を登録し、自動採番された participant_no を返す。"""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO participants
+            (session_id, group_no, age, gender, invest_experience, invest_years,
+             fin_self_rank, fin_score, fin_conf_mean, overconfidence,
+             initial_invest, monthly_invest, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (session_id, group_no, age, gender, invest_experience, invest_years,
+         fin_self_rank, fin_score, fin_conf_mean, overconfidence,
+         initial_invest, monthly_invest, datetime.now().isoformat())
+    )
+    participant_no = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return participant_no
+
+
+def save_fin_literacy(participant_no, detail):
+    # detail: [{"qid","answer","is_correct","confidence"}, ...]
+    conn = get_connection()
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO fin_literacy
+            (participant_no, qid, answer, is_correct, confidence)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [(participant_no, d["qid"], d["answer"], d["is_correct"], d["confidence"])
+         for d in detail]
+    )
+    conn.commit()
+    conn.close()
+
+
+def save_response(session_id, month, phase, return_rate, is_event, engaged,
+                  action, state, answers):
+    # action: action_selector の戻り値（観察のみの月は空）/ state: その月の資産状態 / answers: アンケート回答
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO responses
+            (session_id, month, phase, return_rate, is_event, engaged, action_label,
+             total, cash, investment_value, pl_pct,
+             sell_amount, buy_amount, monthly_invest,
+             anxiety, sell_impulse, continue_invest, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            session_id, month, phase, return_rate,
+            1 if is_event else 0, 1 if engaged else 0,
+            action.get("label") if engaged else "観察のみ",
+            state["total"], state["cash"], state["invest_value"], state["pl_pct"],
+            action.get("sell_amount", 0),
+            action.get("buy_amount", 0),
+            action.get("monthly_invest"),
+            answers.get("anxiety"),
+            answers.get("sell_impulse"),
+            answers.get("continue_invest"),
+            datetime.now().isoformat(),
+        )
+    )
+    conn.commit()
+    conn.close()
+
+
+def save_personalization(session_id, month, slot_id):
+    """群3で今月どの個人化枠を出したかを記録する。操作チェックの根拠になる。"""
+    conn = get_connection()
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO personalization_log
+            (session_id, month, slot_id, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (session_id, month, slot_id, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+def _generate_resume_code(cur, length=6, max_tries=20):
+    """他の再開コードと衝突しないコードを作る。紛らわしい文字は最初から除いてある。"""
+    for _ in range(max_tries):
+        code = "".join(random.choices(_RESUME_ALPHABET, k=length))
+        cur.execute("SELECT 1 FROM progress WHERE resume_code = ?", (code,))
+        if not cur.fetchone():
+            return code
+    raise RuntimeError("再開コードの生成に失敗しました（衝突が続きました）")
+
+
+def save_progress(session_id, state):
+    """中断・再開用のスナップショットを保存する。
+
+    state は st.session_state から再開に必要な項目だけを抜き出した dict
+    （nickname / age / overconfidence / initial_invest / monthly_invest /
+    group / participant_no / decisions / history / month_idx）。
+    2回目以降の呼び出しでは中身だけ更新し、resume_code と created_at
+    （＝再開期限の起点）は最初の保存時のまま変えない。
+
+    戻り値: resume_code（新規なら発行したもの、既存なら変わらず同じもの）
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT resume_code FROM progress WHERE session_id = ?", (session_id,))
+    row = cur.fetchone()
+    now = datetime.now().isoformat()
+    state_json = json.dumps(state, ensure_ascii=False)
+    if row:
+        resume_code = row[0]
+        cur.execute(
+            "UPDATE progress SET state_json = ?, updated_at = ? WHERE session_id = ?",
+            (state_json, now, session_id)
+        )
+    else:
+        resume_code = _generate_resume_code(cur)
+        cur.execute(
+            """INSERT INTO progress (session_id, resume_code, state_json, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (session_id, resume_code, state_json, now, now)
+        )
+    conn.commit()
+    conn.close()
+    return resume_code
+
+
+def load_progress_by_code(resume_code):
+    """再開コードから進捗を探す。
+
+    戻り値: 見つからなければ None。見つかれば (state, session_id, is_expired) の
+    タプル。is_expired は開始（created_at）から RESUME_EXPIRY_DAYS 日を過ぎているか。
+    期限切れかどうかの判断は呼び出し側に委ね、ここでは削除も無効化もしない
+    （何日過ぎていたかを画面に出せるように、判定材料だけ返す）。
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT session_id, state_json, created_at FROM progress WHERE resume_code = ?",
+        ((resume_code or "").strip().upper(),)
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    session_id, state_json, created_at = row
+    age_days = (datetime.now() - datetime.fromisoformat(created_at)).days
+    is_expired = age_days > RESUME_EXPIRY_DAYS
+    return json.loads(state_json), session_id, is_expired
+
+
+def get_progress_status(session_id):
+    """今のセッションの再開コードと、期限までの残り日数を返す（appページの表示用）。
+
+    戻り値: 見つからなければ None。見つかれば (resume_code, remaining_days) のタプル。
+    remaining_days は 0 未満にはならない（期限当日は 0 日として表示する）。
+    """
+    if not session_id:
+        return None
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT resume_code, created_at FROM progress WHERE session_id = ?",
+        (session_id,)
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    resume_code, created_at = row
+    age_days = (datetime.now() - datetime.fromisoformat(created_at)).days
+    remaining_days = max(RESUME_EXPIRY_DAYS - age_days, 0)
+    return resume_code, remaining_days
+
+
+def finalize_participant(session_id, final_asset, total_contributed):
+    """完了時に最終資産と報酬を確定して保存する。
+
+    total_contributed は「参加者に渡した元本の総額」（初期資産＋毎月の余剰資金×月数）。
+    現金のまま残した分も含めて一定なので、呼び出し側の初期設定・積立変更の選択によらず
+    settings["initial_cash"] + MONTHLY_BUDGET * len(timeline) で計算したものを渡す。
+    """
+    reward_yen, profit = compute_reward(final_asset, total_contributed)
+    conn = get_connection()
+    conn.execute(
+        """
+        UPDATE participants
+        SET completed_at = ?, final_asset = ?, profit = ?, reward_yen = ?
+        WHERE session_id = ?
+        """,
+        (datetime.now().isoformat(), final_asset, profit, reward_yen, session_id)
+    )
+    conn.commit()
+    conn.close()

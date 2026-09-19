@@ -1,0 +1,73 @@
+{
+  "meta": {
+    "purpose": "日報用の合成マーケットコンテキスト（VIX・Fear&Greed・セクターヒートマップ・各指数）を、台本の月次リターンから決定論的に生成するための較正パラメータ。",
+    "reproducibility": "seed 固定。utils/market_context.py がこのファイルを読み、scenario の各月に market_context を生成する。",
+    "provenance": {
+      "vix": "実データ較正（FRED: SP500 + VIXCLS の月次120点, 2016-07〜2026-07, コロナ暴落含む）",
+      "fear_greed": "文献ベースの発見的写像（F&Gは公開履歴が乏しく実データ較正不可。VIX=恐怖側とモメンタム=強欲側から算出）",
+      "sector_betas": "文献の一般的なセクターβ（ディフェンシブ<1・景気敏感/ハイテク>1）。手元に履歴データなし",
+      "index_betas": "文献の一般的な対S&P500β（NASDAQ高β・GOLD逆相関・BTC高β）"
+    }
+  },
+
+  "vix": {
+    "model": "VIX = const + trailing_vol_coef * realized_vol_3m + downside_coef * downside_return",
+    "realized_vol_3m": "直近3ヶ月の月次リターン標準偏差 × sqrt(12)（3ヶ月未満は当月|リターン|×sqrt(12)で代用）",
+    "downside_return": "max(0, -当月リターン)",
+    "const": 13.13,
+    "trailing_vol_coef": 40.14,
+    "downside_coef": 90.26,
+    "r_squared": 0.429,
+    "n_months": 120,
+    "clip": [10.0, 85.0]
+  },
+
+  "fear_greed": {
+    "model": "clip(50 - vix_coef*(VIX - vix_neutral) + momentum_coef*momentum_weighted, 3, 97)",
+    "momentum_weighted": "当月重視の加重和：重み[当月0.6, 前月0.3, 前々月0.1]。実F&Gが当月の値動きに機敏に反応することを反映",
+    "momentum_weights": [0.6, 0.3, 0.1],
+    "vix_neutral": 18.0,
+    "vix_coef": 1.5,
+    "momentum_coef": 350.0,
+    "clip": [3, 97],
+    "bands": [
+      [0, 24, "Extreme Fear"],
+      [25, 44, "Fear"],
+      [45, 55, "Neutral"],
+      [56, 75, "Greed"],
+      [76, 100, "Extreme Greed"]
+    ]
+  },
+
+  "sector_betas": {
+    "Technology": 1.15,
+    "Consumer Cyclical": 1.20,
+    "Communication Services": 1.05,
+    "Financial Services": 1.15,
+    "Industrials": 1.05,
+    "Basic Materials": 1.00,
+    "Energy": 1.15,
+    "Real Estate": 0.95,
+    "Healthcare": 0.75,
+    "Consumer Defensive": 0.60,
+    "Utilities": 0.55
+  },
+  "sector_noise_sd": 0.008,
+
+  "index_betas": {
+    "S&P500": 1.00,
+    "NASDAQ": 1.20,
+    "ACWI": 0.90,
+    "GOLD": -0.15,
+    "BTC": 1.50
+  },
+  "index_noise_sd": {
+    "S&P500": 0.0,
+    "NASDAQ": 0.010,
+    "ACWI": 0.008,
+    "GOLD": 0.020,
+    "BTC": 0.050
+  },
+
+  "seed": 20260714
+}

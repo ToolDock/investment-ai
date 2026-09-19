@@ -1,0 +1,54 @@
+# 毎朝、PCを開かなくてもデータ収集→日報生成を回すためのワークフロー。
+# run_daily.bat（ローカルのタスクスケジューラ版）と中身は同じ手順を、GitHub側で実行する。
+name: 日次データ収集・日報生成
+
+on:
+  schedule:
+    # UTC 22:00 = JST 翌07:00（平日のみ。市場が動く日に合わせる）
+    - cron: "0 22 * * 0-4"
+  workflow_dispatch: {}   # 手動実行・catch-up用
+
+concurrency:
+  group: daily-report
+  cancel-in-progress: false   # 実行中に重ねて起動しない
+
+permissions:
+  contents: write   # investment_ai.db をコミットし直すために必要
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 依存関係インストール
+        run: pip install -r requirements.txt
+
+      - name: データ収集
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          ESTAT_API_KEY: ${{ secrets.ESTAT_API_KEY }}
+        run: python collect_all.py
+
+      - name: 日報生成
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LLM_BACKEND: anthropic
+        run: python generate_daily_report.py live
+
+      - name: 変更があれば investment_ai.db をコミット
+        run: |
+          git config user.name "investment-ai-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add investment_ai.db
+          git diff --cached --quiet && echo "変更なし" || git commit -m "自動更新: $(date -u +%Y-%m-%d) の収集・日報"
+          git push

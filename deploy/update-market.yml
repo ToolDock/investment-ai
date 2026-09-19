@@ -1,0 +1,62 @@
+# GitHub Pages のダッシュボードを毎日更新する。
+#
+# Pages リポジトリの .github/workflows/update-market.yml として置く。
+# 前提のディレクトリ構成は deploy/README.md を参照。
+#
+# 置き場所を変えた場合は env の3つを直せば動く。
+
+name: 今日の米国市場を更新
+
+on:
+  schedule:
+    # 米国市場が引けて基準価額も出たあと。UTC 22:00 = 日本時間 翌07:00
+    - cron: "0 22 * * 1-5"
+  workflow_dispatch: {}      # 手動実行も可能にしておく
+
+concurrency:
+  group: update-market
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  SRC_DIR: market                       # 収集・ビルド用スクリプトの置き場所
+  OUT_DIR: docs/us-market               # 公開ディレクトリ（Pages が配信する場所）
+  NAV_CSV: market/data/fund_nav.csv     # 基準価額の履歴（このワークフローが更新する）
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ${{ env.SRC_DIR }}/requirements.txt
+
+      - name: 依存をインストール
+        run: pip install -r "$SRC_DIR/requirements.txt"
+
+      - name: データを取得してビルド
+        working-directory: ${{ env.SRC_DIR }}
+        run: |
+          python build_static.py \
+            --refresh \
+            --strict \
+            --nav-csv "data/fund_nav.csv" \
+            --out "${{ github.workspace }}/${{ env.OUT_DIR }}"
+
+      - name: 変更があればコミット
+        run: |
+          if git diff --quiet -- "$OUT_DIR" "$NAV_CSV"; then
+            echo "変更なし。コミットしません。"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$OUT_DIR" "$NAV_CSV"
+          git commit -m "chore: 米国市場ダッシュボードを更新 ($(date -u '+%Y-%m-%d %H:%M UTC'))"
+          git push

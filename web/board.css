@@ -1,0 +1,220 @@
+/* 今日の米国市場 ── 静的ページの見た目
+ *
+ * デザインの差し替えはこのファイルだけで足りるように、
+ * 色・角丸・間隔はすべて :root の変数に寄せてある。
+ * チャートの文字色も --chart-font-color を board.js が読んで Plotly に渡す。
+ */
+
+:root {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --border: #e3e6ea;
+  --text: #1f2328;
+  --text-muted: #62696f;
+  --text-faint: #8b9298;
+
+  --up: #2e7d32;
+  --down: #c62828;
+  --flat: #78909c;
+
+  --chart-font-color: #3d4348;
+
+  --radius: 10px;
+  --gap: 16px;
+  --section-gap: 34px;
+  --max-width: 1240px;
+
+  --font: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+          "Yu Gothic", Meiryo, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1117;
+    --surface: #161b22;
+    --border: #2a313a;
+    --text: #e6edf3;
+    --text-muted: #9aa4ae;
+    --text-faint: #6e7681;
+    --chart-font-color: #c9d1d9;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 28px 20px 56px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.board {
+  max-width: var(--max-width);
+  margin: 0 auto;
+}
+
+/* ── ヘッダー ───────────────────────────── */
+.board__header { margin-bottom: var(--section-gap); }
+.board__title { margin: 0; font-size: 2rem; font-weight: 700; letter-spacing: .01em; }
+.board__updated { margin: 4px 0 0; font-size: .8rem; color: var(--text-faint); }
+
+/* ── 共通のカード・見出し ────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.section { margin-bottom: var(--section-gap); }
+.section__title,
+.row__title {
+  margin: 0 0 10px;
+  font-size: 1.12rem;
+  font-weight: 700;
+}
+
+.note {
+  margin: 10px 0 0;
+  font-size: .78rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* ── 1・2段目：4つ段組のタイル ───────────── */
+.row { margin-bottom: var(--section-gap); }
+
+.row__tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--gap);
+}
+
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px 8px;
+}
+
+.tile__label {
+  margin: 0;
+  font-size: .82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.tile__price {
+  margin: 2px 0 0;
+  font-size: 1.55rem;
+  font-weight: 700;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile__change {
+  margin: 0;
+  font-size: .9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile__chart { height: 112px; margin-top: 4px; }
+
+.tile__session {
+  margin: 0;
+  font-size: .72rem;
+  color: var(--text-faint);
+}
+
+/* 上げ／下げの色。data-direction は board.js が付ける */
+[data-direction="1"] .tile__change,
+.up { color: var(--up); }
+[data-direction="-1"] .tile__change,
+.down { color: var(--down); }
+[data-direction="0"] .tile__change,
+.flat { color: var(--flat); }
+
+/* ── 3段目：基準価額 ─────────────────────── */
+.fund {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) 2.4fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.fund__stats { padding-top: 4px; }
+.fund__rule { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
+.fund__chart { height: 300px; min-width: 0; }
+
+.stat + .stat { margin-top: 12px; }
+.stat__label { margin: 0; font-size: .8rem; color: var(--text-muted); }
+.stat__value {
+  margin: 0;
+  font-size: 2.4rem;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.stat__value--sm { font-size: 1.5rem; }
+.stat__value--xs { font-size: 1.2rem; }
+.stat__unit { font-size: 1.1rem; margin-left: 2px; }
+.stat__change { margin: 2px 0 0; font-size: 1rem; font-weight: 600; }
+.stat__note { margin: 2px 0 0; font-size: .74rem; color: var(--text-faint); }
+
+/* ── 4段目：ドローダウン ─────────────────── */
+.chart--wide { height: 360px; }
+
+/* ── 5段目：センチメント ─────────────────── */
+.sentiment {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+}
+
+.meter__title { margin: 0 0 6px; font-size: 1rem; font-weight: 700; }
+.meter .chart { height: 260px; }
+.meter--vix .chart { height: 280px; }
+
+.meter__history { display: flex; justify-content: space-around; margin-top: 4px; }
+.meter__history-item { text-align: center; }
+.meter__history-label { display: block; font-size: .72rem; color: var(--text-muted); }
+.meter__history-value { display: block; font-size: 1rem; font-weight: 600; }
+
+/* ── フッター ───────────────────────────── */
+.board__footer {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  color: var(--text-muted);
+  font-size: .78rem;
+}
+.footer__title { margin: 0 0 6px; font-size: .85rem; font-weight: 700; color: var(--text); }
+.sources { margin: 0 0 10px; padding-left: 1.2em; }
+.disclaimer { margin: 0; color: var(--text-faint); }
+
+.board__error {
+  margin-top: 20px;
+  padding: 12px 14px;
+  border: 1px solid var(--down);
+  border-radius: var(--radius);
+  color: var(--down);
+  font-size: .85rem;
+}
+
+/* ── 画面幅が狭いとき ───────────────────── */
+@media (max-width: 1000px) {
+  .row__tiles { grid-template-columns: repeat(2, 1fr); }
+  .fund { grid-template-columns: 1fr; }
+  .sentiment { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 560px) {
+  body { padding: 20px 14px 40px; }
+  .row__tiles { grid-template-columns: 1fr; }
+  .board__title { font-size: 1.5rem; }
+  .stat__value { font-size: 2rem; }
+}

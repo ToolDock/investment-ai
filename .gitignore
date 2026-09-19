@@ -1,0 +1,26 @@
+.env
+venv/
+__pycache__/
+logs/
+*.bak
+_sqlite_probe.db
+
+# 被験者データ（絶対にバージョン管理に乗せない）
+experiment_results.db
+
+# 巨大な生成物（ソースではなく出力なので追跡しない）
+mock_daily_report.html
+daily_report_raw.jsonl
+
+# Claude Code のローカル作業状態（ソースではない）
+.claude/
+
+# investment_ai.db は、2026-09-19の自動化導入までは「再生成できるキャッシュ」として
+# 除外していたが、GitHub Actionsが毎朝ここに収集・生成した結果を書き戻す運用に変えたため、
+# 逆に追跡対象にした（bot専用のコミット。dialogue_log・my_portfolioの2テーブルは
+# 収集・生成スクリプトが一切書き込まないため、このファイルには実質乗らない）。
+# 手元で開発中に生成される一時的なDBはこちらで除外する
+_sqlite_probe.db
+*.db-journal
+*.db-wal
+*.db-shm
