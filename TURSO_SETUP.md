@@ -83,10 +83,10 @@ ANTHROPIC_API_KEY = "既存の.envと同じ値"
 
 ## 6. 注意点
 
-- 本番の日報システム（`investment_ai.db`、GitHub Actionsで毎朝自動生成しているもの）は
-  今回の変更対象外。あちらは引き続き自分のPC上のStreamlitで見る運用のまま
 - 今回の変更は、実験用の参加者データ（`experiment_results.db`）を扱う
-  `utils/storage.py` だけが対象。`utils/portfolio.py`（本番の対話ログ・ポートフォリオ）は
-  変更していない
+  `utils/storage.py` だけが対象
+- 本番（`investment_ai.db`、GitHub Actionsで毎朝自動生成しているもの）のスマホ対応は
+  別途 `TURSO_SETUP_PROD.md` で対応した（2026-09-23）。こちらとは別のTursoデータベース・
+  別のStreamlit Community Cloudデプロイになっているので、混同しないこと
 - Turso無料枠は月500M行読み取り・1000万行書き込み・5GBストレージで、パイロット(5〜10名)は
   もちろん、n≈1,000規模の本実施でも十分すぎる余裕がある

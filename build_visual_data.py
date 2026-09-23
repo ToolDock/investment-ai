@@ -19,6 +19,12 @@ load_dotenv()
 SHILLER_XLS = "data/shiller_ie_data.xls"
 OUT_PATH = "knowledge/historical_visuals.json"
 
+# 「超長期の実質価格」チャート(v_longterm_log)の表示開始年。Shillerデータ自体は1871年
+# からあるが、100年以上前から見せても実感が湧かないという本人のフィードバック
+# （2026-09-23）を受けて、戦後(1945年)以降に絞った。弱気相場の一覧(v_bear_markets、
+# こちらは1900年以降の個別イベントを列挙するテーブルで別物)には影響しない。
+LONGTERM_START_YEAR = 1945
+
 BEAR_NAMES = {"1906.09": "1907年恐慌", "1909.12": "第一次大戦前後の長期低迷",
               "1929.09": "世界恐慌", "1973.01": "オイルショック",
               "2000.08": "ITバブル崩壊", "2007.10": "世界金融危機（リーマンショック）"}
@@ -86,7 +92,8 @@ def bear_markets(d, min_decline=-0.30, since_year=1900):
 
 
 def longterm_log(d):
-    # 年1点（各年最初の月）に間引いた実質価格
+    # 年1点（各年最初の月）に間引いた実質価格。LONGTERM_START_YEAR以降に絞る
+    d = d[d["year"] >= LONGTERM_START_YEAR]
     ann = d.groupby("year", as_index=False).first()
     return [{"year": int(r["year"]), "real": round(float(r["real"]), 1)}
             for _, r in ann.iterrows()]

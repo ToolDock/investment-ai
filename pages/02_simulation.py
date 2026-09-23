@@ -249,7 +249,8 @@ if st.session_state.group == 3:
                     try:
                         _answer, _usage = dialogue_reply(_history, _user_q, _report_for_ai,
                                                          _pf_for_ai, _recent_months, unit="month",
-                                                         recent_actions=_recent_actions)
+                                                         recent_actions=_recent_actions,
+                                                         market_context=market.get("market_context"))
                     except Exception as e:
                         _answer = f"すみません、うまく答えられませんでした（{e}）。少し時間をおいて試してください。"
                 st.write(_answer)

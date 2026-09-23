@@ -179,7 +179,8 @@ def run_pattern(name, gen, timeline, settings):
             recent_actions = [{"label": f"{h['month']}か月目", "phase": h.get("phase"),
                                "action": h.get("action")} for h in hist_log[-3:]]
             system_variable(report_for_ai, pf_for_ai, recent_days=None, unit="month",
-                             recent_actions=recent_actions)
+                             recent_actions=recent_actions,
+                             market_context=t.get("market_context"))
         except Exception:
             result["errors"].append(
                 f"month={m}: dialogue.system_variable crashed:\n" + traceback.format_exc())

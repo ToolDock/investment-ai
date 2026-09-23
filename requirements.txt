@@ -14,7 +14,8 @@ pandas>=2.3,<3
 # 日報の自動生成（GitHub Actions）だけを動かす分には不要。
 streamlit>=1.59,<2
 
-# 参加者データ（experiment_results.db）を外部の永続DBに保存する場合に必要
-# （utils/storage.py の get_connection()。TURSO_CONNECTION_URL 未設定なら使われない）。
-# TURSO_SETUP.md 参照。
+# 参加者データ（experiment_results.db）・本番の個人データ（my_portfolio・dialogue_log）を
+# 外部の永続DBに保存する場合に必要（utils/storage.py の get_connection()、
+# utils/portfolio.py の _conn()。それぞれ TURSO_CONNECTION_URL・TURSO_PROD_CONNECTION_URL が
+# 未設定なら使われない）。TURSO_SETUP.md・TURSO_SETUP_PROD.md 参照。
 turso_serverless

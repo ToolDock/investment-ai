@@ -49,6 +49,29 @@ def _load_kb():
     return lti, chart
 
 
+def _topic_quotes_digest(lti):
+    """局面(phase_tags)とは別の軸で、会話の話題に応じて使ってよい金言。
+
+    knowledge/long_term_investing.json の quotes のうち、topic_tags が
+    付いている(かつ use: false でない)ものだけを抜き出す。pick_quote()/
+    _relevant_quotes()（局面ベースで機械的に1件選ぶ）とは違い、ここでは
+    候補を全部プロンプトに渡し、実際に使うかどうかの判断は対話AI自身に
+    委ねる。principles と同じ「常時注入・LLMが文脈で判断」という設計に
+    揃えてある（§局面タグの粒度見直しdoc「話題ベースの選定」の設計メモを
+    実装したもの、2026-09-23）。
+    """
+    items = [q for q in lti.get("quotes", [])
+             if q.get("topic_tags") and q.get("use", True)]
+    if not items:
+        return ""
+    lines = ["\n# 話題に応じて使ってよい金言（該当する話題が会話に出たときだけ、"
+             "自然な形で一つ添えてよい。無理に使う必要はない）"]
+    for q in items:
+        topics = "・".join(q["topic_tags"])
+        lines.append(f"- 【{topics}】「{q['quote_ja']}」（{q['author']}）")
+    return "\n".join(lines)
+
+
 def _knowledge_digest():
     lti, chart = _load_kb()
     lines = ["# 長期投資の基礎原則"]
@@ -60,6 +83,9 @@ def _knowledge_digest():
     lines.append("\n# チャート指標の読み方（売買判断には使わせない）")
     for ind in chart["indicators"].values():
         lines.append(f"- {ind['title']}：{ind['read']}")
+    topic_digest = _topic_quotes_digest(lti)
+    if topic_digest:
+        lines.append(topic_digest)
     return "\n".join(lines)
 
 
@@ -79,6 +105,40 @@ def _report_digest(report, period_label="本日"):
         if b.get("text"):
             parts.append(b["text"])
     return "\n".join(parts) if parts else f"（{period_label}の日報はまだありません）"
+
+
+def _market_digest(market_context):
+    """市況ダッシュボード（VIX・Fear & Greed・下落幅・主要指数・セクター）の要約。
+
+    画面には show_market_dashboard() で表示されているのに、これまで対話AIには
+    一切渡していなかった。日報本文（_report_digest）は生成時にVIX等を参照しては
+    いるが、文章化する際に具体的な数値まで書くとは限らないため、対話AIが「日報に
+    出ていないので分からない」と答えてしまう事故が起きた（2026-09-23、実機で発見）。
+    画面と対話AIが見ているデータを一致させる。
+    """
+    if not market_context:
+        return "（市況データはありません）"
+    lines = []
+    vix = market_context.get("vix")
+    if vix is not None:
+        chg = market_context.get("vix_change")
+        lines.append(f"VIX：{vix:.1f}" + (f"（前回比{chg:+.1f}）" if chg is not None else ""))
+    fg = market_context.get("fear_greed") or {}
+    if fg.get("value") is not None:
+        lines.append(f"Fear & Greed指数：{fg['value']}（{fg.get('classification', '')}）")
+    dd = (market_context.get("drawdown") or {}).get("current")
+    if dd is not None:
+        lines.append(f"直近高値からの下落幅：{dd:.1f}%")
+    indices = [i for i in (market_context.get("indices") or []) if i.get("symbol")]
+    if indices:
+        lines.append("主要指数：" + "、".join(
+            f"{i['symbol']} {i['change_pct']:+.2f}%" for i in indices))
+    sectors = market_context.get("sectors") or []
+    if sectors:
+        best, worst = sectors[0], sectors[-1]
+        lines.append(f"セクター：{best['sector']} が最も高く{best['change_pct']:+.2f}%、"
+                     f"{worst['sector']} が最も安く{worst['change_pct']:+.2f}%")
+    return "\n".join(lines) if lines else "（市況データはありません）"
 
 
 def _portfolio_digest(portfolio):
@@ -156,9 +216,12 @@ UNIT_LABELS = {
 }
 
 
-def system_variable(report, portfolio, recent_days=None, unit="day", recent_actions=None):
+def system_variable(report, portfolio, recent_days=None, unit="day", recent_actions=None,
+                    market_context=None):
     labels = UNIT_LABELS.get(unit, UNIT_LABELS["day"])
     return (f"## {labels['period']}の日報\n" + _report_digest(report, labels["period"])
+            + f"\n\n## {labels['period']}の市況データ（画面のダッシュボードと同じ数値）\n"
+            + _market_digest(market_context)
             + "\n\n## ユーザーの資産状況\n" + _portfolio_digest(portfolio)
             + "\n\n## 直近の行動（実際に選んだ操作。会話からの推測より必ずこちらを優先する）\n"
             + _action_digest(recent_actions)
@@ -169,7 +232,8 @@ def system_variable(report, portfolio, recent_days=None, unit="day", recent_acti
               "ついては、それが起きた局面（上昇か下落か）を勝手に推測し直さない。")
 
 
-def reply(history, user_input, report, portfolio, recent_days=None, unit="day", recent_actions=None):
+def reply(history, user_input, report, portfolio, recent_days=None, unit="day", recent_actions=None,
+         market_context=None):
     """history: [{"role": "user"/"assistant", "content": str}, ...]（今回の発話は含まない、当日/当月ぶん）
     recent_days: 対象より前の対話ログ（utils.portfolio.load_recent_days() や
                 utils.storage.load_recent_dialogue_months() の戻り値、形は同じ）。
@@ -183,5 +247,6 @@ def reply(history, user_input, report, portfolio, recent_days=None, unit="day", 
     戻り値: (応答文, usage dict)
     """
     messages = list(history) + [{"role": "user", "content": user_input}]
-    return chat(system_common(), system_variable(report, portfolio, recent_days, unit, recent_actions),
+    return chat(system_common(),
+               system_variable(report, portfolio, recent_days, unit, recent_actions, market_context),
                messages, max_tokens=MAX_TOKENS)

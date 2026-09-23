@@ -46,10 +46,23 @@ def main():
 
     # 2. git pull で最新を取り込む（手元の investment_ai.db への変更は一旦捨てる）
     print("[2/3] git pull でクラウドの最新データを取得中...")
+    # investment_ai.db が既に git add 済み（ステージ済み）の状態だと、
+    # 「git checkout -- investment_ai.db」は最新コミット(HEAD)ではなく
+    # そのステージ済みの内容に戻すだけになり、結局HEADとは食い違ったままで
+    # 直後の git pull が「ローカルの変更で上書きされる」と拒否する
+    # （2026-09-23、実際にこの状態で失敗するのを確認）。
+    # 先に reset でステージだけ外してから checkout することで、
+    # ステージ済みかどうかに関わらず確実にHEADの内容に揃える。
+    # ここで戻すのは investment_ai.db 1ファイルだけで、他にステージ済みの
+    # ファイル（ソースコード等）には一切触れない。
+    try:
+        run(["git", "reset", "--", "investment_ai.db"])
+    except subprocess.CalledProcessError:
+        pass  # 追跡されていない場合はそのまま進む
     try:
         run(["git", "checkout", "--", "investment_ai.db"])
     except subprocess.CalledProcessError:
-        pass  # 追跡されていない・差分がない場合はそのまま進む
+        pass  # 差分が無い場合はそのまま進む
     run(["git", "pull"])
 
     # 3. 自分専用テーブルを、pull後のDBに書き戻す

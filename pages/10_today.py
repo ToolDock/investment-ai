@@ -203,7 +203,7 @@ with st.container(height=420, border=True):  # 対話欄の中だけで固定表
                 _recent_days = portfolio_store.load_recent_days(rep["date"], n_days=5)
                 try:
                     _answer, _usage = dialogue_reply(_history, _user_q, _report_for_ai, _pf_now,
-                                                     _recent_days)
+                                                     _recent_days, market_context=mc)
                 except Exception as e:
                     _answer = f"すみません、うまく答えられませんでした（{e}）。少し時間をおいて試してください。"
             st.write(_answer)
