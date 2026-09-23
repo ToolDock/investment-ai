@@ -1,11 +1,15 @@
 import streamlit as st
 
 from utils.storage import init_results_db, load_progress_by_code, get_progress_status
+from utils.components.ui_scale import render_scale_control, inject_scale_css
 
 st.set_page_config(
     page_title="長期投資実験",
     layout="wide"
 )
+
+render_scale_control()
+inject_scale_css()
 
 init_results_db()
 

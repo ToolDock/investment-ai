@@ -10,14 +10,20 @@ from datetime import date
 import streamlit as st
 
 from utils.components.daily_report import show_daily_report
+from utils.components.news import show_news
 from utils.components.market_dashboard import show_market_dashboard, show_price_grid
 from utils.components.reading_board import show_reading_board
 from utils.providers import LiveProvider, closed_message, week_ja
 from utils.dialogue import reply as dialogue_reply
 from utils import portfolio as portfolio_store
 from utils.visuals import fig_ytd_drawdown_yoy, ytd_drawdown_summary
+from utils.components.ui_scale import render_scale_control, inject_scale_css
 
 st.set_page_config(page_title="今日の日報", layout="wide")
+
+# 画面の大きさ（対話AIの入力欄がある分、既定はやや小さめ。サイドバーで調整できる）
+render_scale_control()
+inject_scale_css()
 
 
 @st.cache_data(ttl=600)
@@ -124,11 +130,7 @@ show_daily_report(
 )
 
 heads = (ctx.get("news") or {}).get("headlines") or []
-if heads:
-    st.markdown("#### この日の見出し")
-    st.caption("日報が参照した報道。日報の記述と突き合わせて読めるように並べておく。")
-    for h in heads:
-        st.write(f"- {h.get('text_ja') or h['text']}　*{h['source']}*")
+show_news(heads)
 
 st.markdown("---")
 show_reading_board(ctx, rep.get("history") or {},
@@ -178,31 +180,32 @@ st.markdown("#### 💬 今日の日報について聞く")
 st.caption("今日の日報・長期投資の知識（登録していればあなたの資産状況も）をもとに答えます。"
           "個別銘柄の売買判断はしません。")
 
-_log_key = f"dialogue_{rep['date']}"
-if _log_key not in st.session_state:
-    st.session_state[_log_key] = portfolio_store.load_today_log(rep["date"])
+with st.container(height=420, border=True):  # 対話欄の中だけで固定表示にする（ページ全体を追いかけない）
+    _log_key = f"dialogue_{rep['date']}"
+    if _log_key not in st.session_state:
+        st.session_state[_log_key] = portfolio_store.load_today_log(rep["date"])
 
-for _turn in st.session_state[_log_key]:
-    with st.chat_message(_turn["role"]):
-        st.write(_turn["content"])
+    for _turn in st.session_state[_log_key]:
+        with st.chat_message(_turn["role"]):
+            st.write(_turn["content"])
 
-_user_q = st.chat_input("質問を入力（例：今日はなぜ下がったの？）")
-if _user_q:
-    st.session_state[_log_key].append({"role": "user", "content": _user_q})
-    portfolio_store.log_turn(rep["date"], "user", _user_q)
-    with st.chat_message("user"):
-        st.write(_user_q)
-    with st.chat_message("assistant"):
-        with st.spinner("考え中…"):
-            _report_for_ai = {"headline": rep["headline"], "blocks": rep["blocks"]}
-            _pf_now = portfolio_store.get_portfolio()
-            _history = st.session_state[_log_key][:-1]   # 今回の発話は除く（今日ぶん）
-            _recent_days = portfolio_store.load_recent_days(rep["date"], n_days=5)
-            try:
-                _answer, _usage = dialogue_reply(_history, _user_q, _report_for_ai, _pf_now,
-                                                 _recent_days)
-            except Exception as e:
-                _answer = f"すみません、うまく答えられませんでした（{e}）。少し時間をおいて試してください。"
-        st.write(_answer)
-    st.session_state[_log_key].append({"role": "assistant", "content": _answer})
-    portfolio_store.log_turn(rep["date"], "assistant", _answer)
+    _user_q = st.chat_input("質問を入力（例：今日はなぜ下がったの？）")
+    if _user_q:
+        st.session_state[_log_key].append({"role": "user", "content": _user_q})
+        portfolio_store.log_turn(rep["date"], "user", _user_q)
+        with st.chat_message("user"):
+            st.write(_user_q)
+        with st.chat_message("assistant"):
+            with st.spinner("考え中…"):
+                _report_for_ai = {"headline": rep["headline"], "blocks": rep["blocks"]}
+                _pf_now = portfolio_store.get_portfolio()
+                _history = st.session_state[_log_key][:-1]   # 今回の発話は除く（今日ぶん）
+                _recent_days = portfolio_store.load_recent_days(rep["date"], n_days=5)
+                try:
+                    _answer, _usage = dialogue_reply(_history, _user_q, _report_for_ai, _pf_now,
+                                                     _recent_days)
+                except Exception as e:
+                    _answer = f"すみません、うまく答えられませんでした（{e}）。少し時間をおいて試してください。"
+            st.write(_answer)
+        st.session_state[_log_key].append({"role": "assistant", "content": _answer})
+        portfolio_store.log_turn(rep["date"], "assistant", _answer)

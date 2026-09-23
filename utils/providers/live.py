@@ -20,7 +20,8 @@ from zoneinfo import ZoneInfo
 
 from db import DB_PATH
 
-from .base import ROOT, Provider, classify_phase, drawdown_from_series, load_rules
+from .base import (ROOT, Provider, classify_phase, classify_situation,
+                   drawdown_from_series, load_rules)
 
 # 実データの銘柄コードを、日報が使う呼び名に直す
 INDEX_LABEL = {
@@ -459,7 +460,10 @@ class LiveProvider(Provider):
         return {
             "headline": picked[0]["headline"] if picked else "",
             "cause": "",  # 実データでは理由を作らない。見出しから読める範囲に留める
-            "headlines": [{"text": r["headline"], "source": r["source"]} for r in picked],
+            "headlines": [
+                {"text": r["headline"], "source": r["source"]}
+                for r in picked
+            ],
         }
 
     def _series_of(self, target, symbol=None, series=None):
@@ -571,6 +575,22 @@ class LiveProvider(Provider):
             "drawdown": {"current": dd, "max_so_far": worst},
         }
 
+    def _phase_at(self, i, s):
+        """sのインデックスiの時点の局面だけを、context()と同じロジックで計算する。
+
+        classify_situation()の材料（直近の局面の並び）を作るための軽量版。
+        news/fund/rates等の重い項目は作らない。i<=0（前営業日が無い）ならNone。
+        """
+        if i <= 0:
+            return None
+        ret = s[i][1] / s[i - 1][1] - 1
+        window, _ = self._window(s, i)
+        dd, worst = drawdown_from_series([v for _, v in window])
+        n = self.rules["day"]["trend_window"]
+        j = max(0, i - n)
+        trend = s[i][1] / s[j][1] - 1
+        return classify_phase(ret, dd / 100, trend, "day", self.rules)
+
     # ── 文脈の組み立て ──────────────────────
     def context(self, key):
         s = self.series()
@@ -589,6 +609,11 @@ class LiveProvider(Provider):
         trend = s[i][1] / s[j][1] - 1
 
         phase = classify_phase(ret, dd / 100, trend, "day", self.rules)
+        # 直近n件の局面の並びから、下落系局面をさらに細分する（継続下落／反落。2026-09-23）
+        recent_phases = [p for p in
+                         (self._phase_at(k, s) for k in range(i - 1, max(-1, i - 1 - n), -1))
+                         if p]
+        situation = classify_situation(phase, recent_phases)
         since = window[0][0]
         fund = self._fund(key, since)
         rates = self._rates(key, since)
@@ -603,6 +628,7 @@ class LiveProvider(Provider):
             "date": key,
             "unit": "day",
             "phase": phase,
+            "situation": situation,
             "return": ret,
             "trend": trend,
             "market_context": {

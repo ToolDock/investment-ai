@@ -1,12 +1,13 @@
 import streamlit as st
-import streamlit.components.v1 as components
 
 from utils.load_scenario import load_scenario
 from utils.simulator import Simulator
 from utils.storage import (
     save_response, finalize_participant, save_personalization, save_progress, get_progress_status,
+    save_dialogue_turn, load_dialogue_log, load_recent_dialogue_months,
 )
 from utils.personalization import build_overlay_block
+from utils.dialogue import reply as dialogue_reply
 from utils.components.chart import draw_chart, draw_market_chart
 from utils.components.market_dashboard import show_market_dashboard
 from utils.components.news import show_news
@@ -15,11 +16,17 @@ from utils.components.knowledge import show_reference
 from utils.components.daily_report import show_daily_report
 from utils.components.action import action_selector
 from utils.components.questionnaire import show_questionnaire
+from utils.components.ui_scale import render_scale_control, inject_scale_css
 
 MONTHLY_BUDGET = 50000                          # 毎月の余剰資金
 EVENT_PHASES = {"暴落", "暴騰", "急回復"}         # 相場変動月＝行動選択を強制する局面
 
 st.set_page_config(page_title="長期投資シミュレーション", layout="wide")
+
+# 画面の大きさ（対話AIの入力欄が増えて窮屈に感じやすいので、既定はやや小さめ。
+# サイドバーからいつでも拡大・縮小できる）
+render_scale_control()
+inject_scale_css()
 
 # サイドバーの自動ページ一覧から直接このページを開くと session_id が無いまま
 # デフォルト値で進んでしまい、記録も再開コードも一切発行されない。それを防ぐガード
@@ -31,21 +38,38 @@ if "session_id" not in st.session_state:
 
 
 def _scroll_to_top():
-    # 月が変わったらページの先頭に戻す。描画が終わる前に走ると効かないので数回試す
-    components.html(
+    # 月が変わったらページの先頭に戻す。描画が終わる前に走ると効かないので数回試す。
+    # 対話AI（st.chat_input）を追加してから、決まったセレクタだけでは実際にスクロール
+    # している要素を取りこぼすことがあると分かったため、(1) 既知のセレクタに加えて
+    # 全要素を走査して実際にスクロールしているものを探す、(2) chat_input側にフォーカスが
+    # 残っているとブラウザがそちらへスクロールを戻すことがあるのでフォーカスも外す、
+    # (3) 試行回数・期間を増やす、の3点で堅牢にした
+    st.iframe(
         """<script>
         const sels = ['[data-testid="stMain"]', '[data-testid="stAppViewContainer"]',
+                      '[data-testid="stMainViewContainer"]',
+                      '[data-testid="stMainBlockContainer"]',
                       '.stMainBlockContainer', 'section.main', '.main'];
         function toTop() {
           const d = window.parent.document;
-          for (const s of sels) {
-            const el = d.querySelector(s);
-            if (el && el.scrollHeight > el.clientHeight) { el.scrollTop = 0; }
+          if (d.activeElement && typeof d.activeElement.blur === 'function') {
+            d.activeElement.blur();
           }
+          for (const s of sels) {
+            d.querySelectorAll(s).forEach(el => {
+              if (el.scrollHeight > el.clientHeight) el.scrollTop = 0;
+            });
+          }
+          // 上のセレクタで取りこぼした場合の保険：実際にスクロールしている要素を全体から探す
+          d.querySelectorAll('*').forEach(el => {
+            if (el.scrollTop > 0 && el.scrollHeight > el.clientHeight) el.scrollTop = 0;
+          });
           if (d.scrollingElement) d.scrollingElement.scrollTop = 0;
+          if (d.documentElement) d.documentElement.scrollTop = 0;
+          if (d.body) d.body.scrollTop = 0;
           window.parent.scrollTo(0, 0);
         }
-        [0, 60, 200, 500].forEach(t => setTimeout(toTop, t));
+        [0, 60, 200, 500, 900, 1500].forEach(t => setTimeout(toTop, t));
         </script>""",
         height=0,
     )
@@ -133,11 +157,10 @@ draw_chart(asset_history, month,
 st.caption("上の大きなチャートは市場（S&P500）の推移、こちらはあなたの資産の推移です。"
            "灰色の点線が投入した金額の累計で、青い線との差が相場での損益です。")
 
-# ── 市況・ニュース・SNS・参考書・日報（全群共通の情報） ──
+# ── 市況・SNS・参考書・日報（全群共通の情報） ──
 show_market_dashboard(market.get("market_context"))
-show_news(market["news"])
 show_sns(market["sns"])
-show_reference(phase, timeline=timeline, month=month)
+show_reference(phase, timeline=timeline, month=month, situation=market.get("situation"))
 
 overlay = None
 if st.session_state.group == 3:
@@ -146,13 +169,93 @@ if st.session_state.group == 3:
     # asset_history / timeline は節目（指数の最高値更新・含み損からの復帰）の判定に使う
     overlay, slot_id = build_overlay_block(
         st.session_state.get("overconfidence"), st.session_state.history, month,
-        state={"total": state["total"], "pl_pct": state["pl_pct"]},
+        state={"invest_value": state["invest_value"], "pl_pct": state["pl_pct"]},
         asset_history=asset_history, timeline=timeline)
     if "session_id" in st.session_state:
         save_personalization(st.session_state.session_id, month, slot_id)
 
 show_daily_report(market["daily_report"], st.session_state.group,
                   timeline=timeline, month=month, overlay=overlay)
+
+# ニュース見出しは日報のあと。本番（pages/10_today.py）と同じ並び順に揃えた
+# （本番は「日報が参照した報道をあとで確認する」という設計で日報のあとに置いており、
+# 実験側もそれに合わせた。2026-09-23）
+show_news(market["news"].get("headlines") or [])
+
+# ── 対話AI（群3のみ）───────────────────────
+# 本番（pages/10_today.py）で鍛えた対話AIを、実験の月次データでそのまま再利用する。
+# utils.dialogue.reply() は report/portfolio/recent_days をただの辞書として受け取る
+# 作りにしてあるため、dialogue.py 自体は一切変更していない（実験・本番で1本にする、
+# という設計原則どおり）。会話ログは experiment_results.db 側に session_id・month
+# 区切りで保存する（本番は investment_ai.db に report_date区切りで保存している）。
+if st.session_state.group == 3:
+    st.markdown("---")
+    st.markdown("#### 💬 今月の日報について聞く")
+    st.caption("今月の日報・長期投資の知識・あなたの資産状況をもとに答えます。"
+              "個別銘柄の売買判断はしません。")
+
+    with st.container(height=420, border=True):  # 対話欄の中だけで固定表示にする（ページ全体を追いかけない）
+        _sid = st.session_state.get("session_id")
+        _log_key = f"dialogue_{_sid}_{month}"
+        if _log_key not in st.session_state:
+            st.session_state[_log_key] = load_dialogue_log(_sid, month) if _sid else []
+
+        for _turn in st.session_state[_log_key]:
+            with st.chat_message(_turn["role"]):
+                st.write(_turn["content"])
+
+        _user_q = st.chat_input("質問を入力（例：今月はなぜ下がったの？）", key=f"chat_input_{month}")
+        if _user_q:
+            st.session_state[_log_key].append({"role": "user", "content": _user_q})
+            if _sid:
+                save_dialogue_turn(_sid, month, "user", _user_q)
+            with st.chat_message("user"):
+                st.write(_user_q)
+            with st.chat_message("assistant"):
+                with st.spinner("考え中…"):
+                    # 画面に実際に表示しているのと同じ内容（overlayを含む）を対話AIにも渡す。
+                    # show_daily_report() 内のブロック組み立てと同じロジック
+                    _raw_report = market["daily_report"] or {}
+                    _report_blocks = _raw_report.get("blocks")
+                    if not _report_blocks:
+                        _text = (_raw_report.get("group2") or "").strip()
+                        _report_blocks = [{"text": t, "chart": None}
+                                          for t in _text.split("\n") if t.strip()]
+                    if overlay and _report_blocks:
+                        _report_blocks = _report_blocks[:-1] + [overlay] + _report_blocks[-1:]
+                    _report_for_ai = {"headline": _raw_report.get("headline", ""),
+                                      "blocks": _report_blocks}
+                    # ポートフォリオは本番と違い自己申告ではなく、シミュレーターが計算した
+                    # 実際の値をそのまま渡す（§20-1で「実際の資産状況を踏まえるほうが良い」
+                    # とした方針どおり、実験では既に正確な値を持っているのでそれを使う）
+                    _pf_for_ai = {
+                        "cash": state["cash"],
+                        "invested_value": state["invest_value"],
+                        "cost_basis": state["cost_basis"],
+                    }
+                    _history = st.session_state[_log_key][:-1]   # 今回の発話は除く（今月ぶん）
+                    _recent_months = (load_recent_dialogue_months(_sid, month, n_months=3)
+                                     if _sid else [])
+                    # 実際に選んだ行動（買い増し・売却・積立変更など）を、会話ログとは別に
+                    # 明示的に渡す。st.session_state.history は前月までの決定が積み上がって
+                    # いる（今月ぶんはまだ行動選択前）ので、直近3か月ぶんを拾えばよい。
+                    # これが無いと、直近の追加投資にAIが気づけず無反応だったり、下落局面での
+                    # 買い増しを「上がったから買った」と取り違えたりする（2026-09-21発見）
+                    _recent_actions = [
+                        {"label": f"{h['month']}か月目", "phase": h.get("phase"),
+                         "action": h.get("action")}
+                        for h in st.session_state.history[-3:]
+                    ]
+                    try:
+                        _answer, _usage = dialogue_reply(_history, _user_q, _report_for_ai,
+                                                         _pf_for_ai, _recent_months, unit="month",
+                                                         recent_actions=_recent_actions)
+                    except Exception as e:
+                        _answer = f"すみません、うまく答えられませんでした（{e}）。少し時間をおいて試してください。"
+                st.write(_answer)
+            st.session_state[_log_key].append({"role": "assistant", "content": _answer})
+            if _sid:
+                save_dialogue_turn(_sid, month, "assistant", _answer)
 
 st.divider()
 

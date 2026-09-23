@@ -1,8 +1,20 @@
-# GitHub Actions（クラウド自動実行）およびローカル開発の両方で使う依存関係。
-# venv側の実インストール版（2026-09時点）に概ね合わせつつ、上限は緩めに固定。
+# GitHub Actions（クラウド自動実行）・ローカル開発・実験アプリのクラウドホスティングの
+# いずれでも使う依存関係。venv側の実インストール版（2026-09時点）に概ね合わせつつ、
+# 上限は緩めに固定。
 requests>=2.30,<3
 python-dotenv>=1.0,<2
 anthropic>=0.110,<1
 openai>=3.0,<4
 plotly>=6.0,<8
 apscheduler>=3.10,<4
+numpy>=2.2,<3
+pandas>=2.3,<3
+
+# 実験アプリ（pages/*.py）をStreamlit Community Cloud等でホストする場合に必要。
+# 日報の自動生成（GitHub Actions）だけを動かす分には不要。
+streamlit>=1.59,<2
+
+# 参加者データ（experiment_results.db）を外部の永続DBに保存する場合に必要
+# （utils/storage.py の get_connection()。TURSO_CONNECTION_URL 未設定なら使われない）。
+# TURSO_SETUP.md 参照。
+turso_serverless

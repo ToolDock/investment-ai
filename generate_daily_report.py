@@ -49,8 +49,13 @@ SYSTEM_BASE = """あなたは、長期・インデックス投資を確信を持
 - 教え諭す先生口調（「〜しましょう」）を避ける。導く仲間として書く。
 - AI自身が損して動揺しているかのような吐露はしない。読者はAIが投資していないと知っている。
 - 読者への共感の入り方は毎回変える。同じ言い回しを使い回さない。
-- 淡々とした語りの中に、一言だけ印象に残る言い回しを置いてよい
-  （例：「ついに約束の地に帰ってきた、という感じですね」）。多用せず、その__PERIOD__に一箇所まで。
+- 「# この局面で使える知識」に金言が示されていれば、それを一言だけ引用し、著者名を添える
+  （例：「『何かをしようとするな。そこに立っていろ。』ジョン・ボーグルの言葉です。」）。
+  自分で新しい警句を作らない。既存の言い回しをそのまま使い、要約や意訳をしない。
+  置く場所は締めの決まり文句のすぐ手前、本文の最後の段落。そこだけ独立した一文にして際立たせる。
+  多用はしない。この金言の引用と入れ替えに、自分で作った気の利いた言い回しは置かない
+  （その__PERIOD__に印象に残る一言を置くのはここ一箇所のみで、他の段落では平静な語りに徹する）。
+  金言が示されていなければ、この枠を無理に埋めず、直前の内容から決まり文句へ自然につなげる。
 - 一方で、書き出しの型と締めの決まり文句は毎回同じにする（下記「定型」）。中身は変え、枠は変えない。
 
 # 中核の方針：なだめるのではなく、測り直す
@@ -102,7 +107,8 @@ __PERIOD_RULE__
 
 # 定型（毎回同じ枠を使う）
 - 書き出し：本文の冒頭には「こんにちは、◯◯さん。」という挨拶が自動で付く。それに続く形で、「__UNIT__のS&P500は、〜でしたね。」と相場の調子をひとことで言い、すぐに「S&P500は◯◯%上昇（下落）しました。」と数値を出す。そのあとに読者の気持ちを1文だけ先回りする。挨拶そのものは書かない。
-- 締め：本文の最後を、決まり文句「__CLOSING__」で結ぶ。直前の内容から自然につなげる。
+- 締め：本文の最後を、決まり文句「__CLOSING__」で結ぶ。金言を引用した場合はその直後に、
+  していない場合は直前の内容から、自然につなげる。
 
 # 締め方
 行動を指示して終わらない。読者の日常に返したうえで、決まり文句で閉じる。
@@ -255,16 +261,30 @@ def build_system_common(kb, unit="month", fiction=True):
     return "".join(parts)
 
 
-def pick_quote(kb, phase, month):
-    """局面固有の金言を優先し、複数あれば月ごとに巡回させる（決定論的）。"""
+def pick_quote(kb, phase, month, situation=None):
+    """局面固有の金言を優先し、複数あれば月ごとに巡回させる（決定論的）。
+
+    2026-09-23: 局面(phase)だけでは「ずっと下落している」のか「高騰の直後の
+    一休み」なのかを区別できず、かけるべき言葉が違うという指摘を受けて、
+    situation（classify_situation()が返す「継続下落」「反落」等）による
+    優先選定を追加した。situationにも合う金言があればそれを最優先し、
+    無ければ局面一致の金言、それも無ければ全局面共通("all")の金言を使う。
+
+    また、"all"タグの金言は従来 specific が1件でもあれば完全に出番が無かった
+    （pool = specific or general）。汎用的な金言を死蔵させないよう、
+    situation一致が無い場合は「局面一致＋全局面共通」を合わせたプールから
+    月ごとに巡回させる方式に変えた。
+    """
     usable = [q for q in kb.get("quotes", []) if q.get("use", True)]
     specific = [q for q in usable if phase in q.get("phase_tags", [])]
     general = [q for q in usable if "all" in q.get("phase_tags", [])]
-    pool = specific or general
+    situational = [q for q in specific
+                   if situation and situation in q.get("situation_tags", [])]
+    pool = situational or (specific + general) or general
     return pool[month % len(pool)] if pool else None
 
 
-def _retrieve_knowledge(kb, phase, month):
+def _retrieve_knowledge(kb, phase, month, situation=None):
     """局面ごとに変わる部分。共通部には含めない。"""
     modules = [m for m in kb.get("phase_modules", []) if m["phase"] == phase]
     parts = []
@@ -276,7 +296,7 @@ def _retrieve_knowledge(kb, phase, month):
     if emp:
         parts.append("【この局面での共感の入り口（そのまま使わず、これを起点に自分の言葉で書く）】")
         parts.append(f"- {emp[month % len(emp)]}")
-    q = pick_quote(kb, phase, month)
+    q = pick_quote(kb, phase, month, situation)
     if q:
         parts.append("【使える金言】")
         parts.append(f"- {q['quote_ja']}（{q['author']}）")
@@ -323,12 +343,23 @@ def length_range(n_topics, is_event=False):
 
 
 def _news_section(m):
-    """報道の見せ方。台本は理由まで与えるが、実データでは見出しを渡すだけにする。"""
+    """報道の見せ方。台本は理由まで与えるが、実データでは見出しを渡すだけにする。
+
+    2026-09-22、Finnhubの記事要約（summary）を取り込む案を一度試したが、著作権面の
+    懸念（要約は見出しより著作物性が高く、しかもdaily_report.contextに恒久保存される
+    設計だった）を理由に見送り、見出しのみに戻した（§25-6）。ニュース説明が薄いという
+    指摘自体への対応は、要約以外の手段（例：媒体名・複数見出しの提示、金言の活用など）
+    で引き続き検討する。
+    """
     news = m.get("news") or {}
     heads = news.get("headlines") or []
     if heads:
-        lines = "\n".join(f"  - {h['text']}（{h['source']}）" for h in heads)
-        return ("- 参考にできる報道の見出し（実際に配信されたもの）:\n" + lines +
+        # 実験側の見出しにはsourceを付けていない（架空の報道機関名の捏造を避けるため。
+        # §25系のニュース見出し統一を参照）。本番はFinnhubの実データでsourceが入る。
+        # 2026-09-23、ここがh['source']決め打ちで実験側が必ずKeyErrorになっていたのを発見・修正。
+        lines = [f"  - {h['text']}" + (f"（{h['source']}）" if h.get('source') else "")
+                for h in heads]
+        return ("- 参考にできる報道の見出し（実際に配信されたもの）:\n" + "\n".join(lines) +
                 "\n  値動きの理由は、この見出しに書かれている場合にかぎり、報道として引く。"
                 "「〜と伝えられています」「〜が理由として挙げられています」の形にし、"
                 "媒体名を添えてよい。自分の見立てとして述べない。"
@@ -503,7 +534,7 @@ def build_user_prompt(m, kb, prev=None):
 {_shown_episodes(dd['max_so_far']) if 'v_recent_drawdowns' in CHART_BY_PHASE.get(m['phase'], []) else ''}
 
 # この局面で使える知識
-{_retrieve_knowledge(kb, m['phase'], m['month'])}
+{_retrieve_knowledge(kb, m['phase'], m['month'], m.get('situation'))}
 
 # この回の切り口
 {angle}

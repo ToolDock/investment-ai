@@ -30,7 +30,15 @@ SYSTEM_INSTRUCTIONS = """あなたは、長期・分散・低コストのイン�
 - 個別銘柄の売買推奨や「今買うべき/売るべき」という断定的な助言はしない。
 - 一般的な長期投資の原則・知識にもとづいて、落ち着いた口調で答える。
 - 分からないこと・データが無いことは、正直に「分からない」と言う。
-- 回答は短く（3〜6文程度）。前置きは要らない。"""
+- 回答は短く（3〜6文程度）。前置きは要らない。
+- 余裕資金での下落時の追加投資について聞かれたときは、まず「予定を変えるべきではない」と
+  頭ごなしに否定しない。決めている積立とは別に余裕資金をどう使うかは本人の判断であり、
+  分かっていれば現金残高など実際の数字を踏まえて、その判断を後押しする形で答える。ただし、
+  相場の動きや感情に判断基準が引っ張られている兆候（上がったから追いかける、焦って倍賭けする
+  など）には注意を促してよい。
+- ユーザーが実際に取った行動（買い増し・売却・積立変更など）が「直近の行動」として渡されて
+  いる場合は、それを会話の推測より優先する。とくに、その行動が下落局面と上昇局面のどちらで
+  起きたかを取り違えない。"""
 
 
 def _load_kb():
@@ -61,16 +69,16 @@ def system_common():
     return SYSTEM_INSTRUCTIONS + "\n\n" + _knowledge_digest()
 
 
-def _report_digest(report):
+def _report_digest(report, period_label="本日"):
     if not report:
-        return "（本日の日報はまだありません）"
+        return f"（{period_label}の日報はまだありません）"
     parts = []
     if report.get("headline"):
         parts.append(f"見出し：{report['headline']}")
     for b in report.get("blocks") or []:
         if b.get("text"):
             parts.append(b["text"])
-    return "\n".join(parts) if parts else "（本日の日報はまだありません）"
+    return "\n".join(parts) if parts else f"（{period_label}の日報はまだありません）"
 
 
 def _portfolio_digest(portfolio):
@@ -119,21 +127,61 @@ def _memory_digest(recent_days):
     return "\n".join(lines) if lines else "（これまでの対話ログはまだありません）"
 
 
-def system_variable(report, portfolio, recent_days=None):
-    return ("## 本日の日報\n" + _report_digest(report)
+def _action_digest(recent_actions):
+    """recent_actions: [{"label": str, "phase": str, "action": str}, ...]（古い順）。
+
+    実際に何を選んだか（買い増し／売却／積立変更／何もしない）を、会話の文脈からの推測任せに
+    しないための短い行動履歴。これが無いと、直近の追加投資にAIが気づけず反応しなかったり、
+    下落局面での買い増しを「上がったから買った」と方向を取り違えたりする事故につながる
+    （2026-09-21の実プレイで発見）。label は呼び出し側で用意した表示用の文字列
+    （例："37か月目" または日付）で、unit・実験/本番を問わない。
+    """
+    if not recent_actions:
+        return "（直近の行動記録はありません）"
+    lines = []
+    for a in recent_actions:
+        label = a.get("label", "")
+        phase = a.get("phase") or "不明"
+        action = a.get("action") or "何もしない"
+        lines.append(f"- {label}（局面：{phase}）：{action}")
+    return "\n".join(lines) if lines else "（直近の行動記録はありません）"
+
+
+# unit="day"（本番・日次）／"month"（実験・月次）で、システムプロンプトの言い回しを
+# 切り替える。ScriptedProvider/LiveProvider の unit や generate_daily_report.py の
+# _allowed_charts(unit=...) と同じ考え方（§20-7の教訓：単位を握りつぶすと文章が食い違う）。
+UNIT_LABELS = {
+    "day": {"period": "本日", "recent": "直近数日", "current_ref": "今日"},
+    "month": {"period": "今月", "recent": "直近の月々", "current_ref": "今月"},
+}
+
+
+def system_variable(report, portfolio, recent_days=None, unit="day", recent_actions=None):
+    labels = UNIT_LABELS.get(unit, UNIT_LABELS["day"])
+    return (f"## {labels['period']}の日報\n" + _report_digest(report, labels["period"])
             + "\n\n## ユーザーの資産状況\n" + _portfolio_digest(portfolio)
-            + "\n\n## これまでの対話（直近数日、参考程度に）\n" + _memory_digest(recent_days)
+            + "\n\n## 直近の行動（実際に選んだ操作。会話からの推測より必ずこちらを優先する）\n"
+            + _action_digest(recent_actions)
+            + f"\n\n## これまでの対話（{labels['recent']}、参考程度に）\n" + _memory_digest(recent_days)
             + "\n\n※「これまでの対話」は、自然なときだけ踏まえればよい。毎回律儀に触れなくてよい。"
-              "内容が今日の情報と食い違う場合（資産状況など）は、常に今日の情報を優先する。")
+              f"内容が{labels['current_ref']}の情報と食い違う場合（資産状況など）は、"
+              f"常に{labels['current_ref']}の情報を優先する。「直近の行動」に記録がある操作に"
+              "ついては、それが起きた局面（上昇か下落か）を勝手に推測し直さない。")
 
 
-def reply(history, user_input, report, portfolio, recent_days=None):
-    """history: [{"role": "user"/"assistant", "content": str}, ...]（今回の発話は含まない、今日ぶん）
-    recent_days: 今日より前の対話ログ（utils.portfolio.load_recent_days() の戻り値）。
-                短期記憶として system_variable に載せる。今日のターン自体は history 側
+def reply(history, user_input, report, portfolio, recent_days=None, unit="day", recent_actions=None):
+    """history: [{"role": "user"/"assistant", "content": str}, ...]（今回の発話は含まない、当日/当月ぶん）
+    recent_days: 対象より前の対話ログ（utils.portfolio.load_recent_days() や
+                utils.storage.load_recent_dialogue_months() の戻り値、形は同じ）。
+                短期記憶として system_variable に載せる。当日/当月のターン自体は history 側
+    unit: "day"（本番・日次、既定）または "month"（実験・月次）。システムプロンプトの
+          「本日/今日」「今月」の言い回しだけを切り替える。中身のロジックは共通のまま
+    recent_actions: 直近に実際に選んだ行動の履歴（[{"label":..., "phase":..., "action":...}, ...]、
+                    古い順）。省略可（本番は当面 None のまま）。会話ログだけでは分からない
+                    「実際に何をしたか」をAIに正しく伝え、反応漏れ・方向の取り違えを防ぐ
 
     戻り値: (応答文, usage dict)
     """
     messages = list(history) + [{"role": "user", "content": user_input}]
-    return chat(system_common(), system_variable(report, portfolio, recent_days),
+    return chat(system_common(), system_variable(report, portfolio, recent_days, unit, recent_actions),
                messages, max_tokens=MAX_TOKENS)

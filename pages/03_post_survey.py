@@ -2,8 +2,12 @@ import streamlit as st
 
 from utils.post_survey import LIKERT5, FREE, ATTENTION, items_for, recall_for
 from utils.storage import save_post_survey
+from utils.components.ui_scale import render_scale_control, inject_scale_css
 
 st.set_page_config(page_title="事後アンケート", layout="centered")
+
+render_scale_control()
+inject_scale_css()
 
 st.title("事後アンケート")
 st.write("シミュレーションはこれで終わりです。最後にいくつか質問させてください。")

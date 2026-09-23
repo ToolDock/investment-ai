@@ -15,12 +15,20 @@
     unit            "month" | "day"。文中の「今月／今日」を切り替える
     window          ドローダウンを測った期間（本番のみ）
     fund            円建て投信の状況（本番のみ）
+    situation       下落系の局面をさらに細分するラベル（2026-09-23追加）。
+                    「継続下落」「反落」のいずれか、該当なしは None。
+                    classify_situation() 参照。金言選定をより状況に合わせるための
+                    追加の軸で、必須キーではない（無くても既存の動作を維持する）。
 """
 
 import json
 import os
 
 PHASES = ["暴落", "急回復", "安定下落", "暴騰", "停滞", "安定上昇"]
+
+# 下落系の局面をさらに細分するための分類（金言選定を状況に合わせるため、2026-09-23）。
+DOWN_PHASES = {"暴落", "安定下落"}
+UP_PHASES = {"暴騰", "安定上昇"}
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RULES_PATH = os.path.join(ROOT, "knowledge", "phase_rules.json")
@@ -115,6 +123,29 @@ def classify_phase(ret, dd_current, trend, unit="month", rules=None):
             continue
         return r["phase"]
     return "安定上昇"
+
+
+def classify_situation(phase, recent_phases):
+    """下落系の局面（暴落・安定下落）を、直近の局面推移からさらに細分する。
+
+    「ずっと下がり続けている場面」と「高騰の直後に一休みしている下落」とでは、
+    投資家にかけるべき言葉（信じて耐える／浮かれず淡々と）が違う、という指摘
+    （2026-09-23）を受けて追加。実験・本番どちらも、この関数と直近の局面ラベルの
+    並びだけで判定できるようにしてある（本番専用フィールドのcause/referenceには
+    依存しない）。
+
+    recent_phases: 直前から古い順に並べた局面ラベルのリスト（取れた分だけでよい。
+    空リスト・Noneも許容する）。
+
+    戻り値: "継続下落"／"反落"／None（下落系でない、または判定材料が無い）。
+    """
+    if phase not in DOWN_PHASES:
+        return None
+    if recent_phases and recent_phases[0] in UP_PHASES:
+        return "反落"
+    if recent_phases and all(p not in UP_PHASES for p in recent_phases):
+        return "継続下落"
+    return None
 
 
 def drawdown_from_series(values):

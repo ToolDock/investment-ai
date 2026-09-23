@@ -32,7 +32,25 @@ def compute_reward(final_asset, total_contributed):
 
 
 def get_connection():
-    # 複数参加者の同時アクセスに備えてロック待ちを許可する
+    """参加者データの接続先を返す。
+
+    TURSO_CONNECTION_URL が設定されていれば、外部の永続DB（Turso／libSQL）に
+    つなぐ。Streamlit Community Cloud等、ローカルファイルシステムが再起動のたびに
+    リセットされる環境に本番の実験アプリを置くための切り替え。ローカルでの開発・
+    自分のPCでの動作確認（これまでどおりの使い方）では、この環境変数を設定しなければ
+    従来どおりローカルの experiment_results.db を使う（挙動は一切変えていない）。
+
+    Turso（libSQL）はSQLite自体のフォークで、SQL文はそのまま互換（AUTOINCREMENT・
+    lastrowid・INSERT OR REPLACE・executemany、いずれもそのまま使える設計）。
+    ただし実際にTursoへつないでの動作確認は、アカウント作成がこちらではできない
+    ため未実施（TURSO_SETUP.md参照。本人の環境での確認が必要）。
+    """
+    turso_url = os.environ.get("TURSO_CONNECTION_URL")
+    if turso_url:
+        import turso_serverless
+        return turso_serverless.connect(
+            turso_url, auth_token=os.environ.get("TURSO_AUTH_TOKEN"))
+    # 複数参加者の同時アクセスに備えてロック待ちを許可する（ローカルSQLiteのみの設定）
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.execute("PRAGMA busy_timeout = 5000")
     return conn
@@ -144,6 +162,21 @@ def init_results_db():
             state_json  TEXT,
             created_at  TEXT,
             updated_at  TEXT
+        )
+    """)
+
+    # 群3「提案AI対話」の会話ログ。本番（investment_ai.db の dialogue_log、report_date区切り）
+    # と同じ役割を、実験では session_id・month区切りで持つ（1参加者が60か月を通しでプレイする
+    # ため、区切りは日付ではなく月）。本番用の utils.dialogue.reply() をそのまま再利用できるよう、
+    # 読み出し側で本番と同じ dict の形（{"role":..., "content":...}）に整える。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS dialogue_log (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            month      INTEGER,
+            role       TEXT,
+            content    TEXT,
+            created_at TEXT
         )
     """)
 
@@ -363,3 +396,58 @@ def finalize_participant(session_id, final_asset, total_contributed):
     )
     conn.commit()
     conn.close()
+
+
+def save_dialogue_turn(session_id, month, role, content):
+    """群3の対話AIの1発話を記録する（本番の utils.portfolio.log_turn に相当）。"""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO dialogue_log (session_id, month, role, content, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (session_id, month, role, content, datetime.now().isoformat(timespec="seconds"))
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_dialogue_log(session_id, month):
+    """今月ぶんの対話ログを発話順で返す（本番の utils.portfolio.load_today_log に相当）。"""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT role, content FROM dialogue_log "
+            "WHERE session_id = ? AND month = ? ORDER BY id",
+            (session_id, month)
+        ).fetchall()
+    finally:
+        conn.close()
+    return [{"role": r[0], "content": r[1]} for r in rows]
+
+
+def load_recent_dialogue_months(session_id, before_month, n_months=3):
+    """今月より前で、実際にやり取りのあった直近 n_months か月ぶんの対話ログを、
+    月の古い順・各月はやり取りの順で返す（本番の utils.portfolio.load_recent_days に相当。
+    本番は暦日区切り・こちらは月区切りという違いだけで、会話の連続性という役割は同じ）。
+
+    utils.dialogue.reply() の recent_days 引数がそのまま使える形（[{"date":..., "turns":[...]}, ...]）
+    で返す。"date" キーには日付の代わりに「37か月目」のような月ラベルを入れる
+    （dialogue.py 側はラベルとして表示するだけで、日付かどうかを判定してはいないため、
+    dialogue.py 自体は変更不要）。
+    """
+    conn = get_connection()
+    try:
+        months = [r[0] for r in conn.execute(
+            "SELECT DISTINCT month FROM dialogue_log WHERE session_id = ? AND month < ? "
+            "ORDER BY month DESC LIMIT ?", (session_id, before_month, n_months)).fetchall()]
+        months.reverse()  # 古い順に並べ直す
+        out = []
+        for m in months:
+            rows = conn.execute(
+                "SELECT role, content FROM dialogue_log "
+                "WHERE session_id = ? AND month = ? ORDER BY id",
+                (session_id, m)).fetchall()
+            out.append({"date": f"{m}か月目",
+                       "turns": [{"role": r[0], "content": r[1]} for r in rows]})
+    finally:
+        conn.close()
+    return out

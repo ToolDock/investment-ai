@@ -126,6 +126,33 @@ def _heatmap_html(sectors):
     )
 
 
+def _indices_html(indices):
+    """market_context.indices（S&P500・NASDAQ・GOLD・BTCなど）を簡易タイルで並べる。
+
+    ヒートマップ（セクター）とは別に、指数・コモディティ自体の騰落を数値で
+    確認できる場所がどこにもなかった（本番はshow_price_gridのライブカードで
+    別途見えるが、実験はこの関数しか呼ばれないため、BTC等の数値がまったく
+    画面に出ないというギャップがあった）。indices は実験・本番どちらの
+    market_contextにも入っている共通データなので、ここに足すことで両方に効く。
+    """
+    if not indices:
+        return None
+    cells = ""
+    for i in indices:
+        c = i["change_pct"]
+        bg, fg = _tile_colors(c)
+        cells += (
+            f"<div style='background:{bg};color:{fg};border-radius:8px;"
+            f"padding:10px 8px;text-align:center;'>"
+            f"<div style='font-size:0.78rem;opacity:0.9'>{i['symbol']}</div>"
+            f"<div style='font-weight:700;font-size:1.0rem'>{c:+.1f}%</div></div>"
+        )
+    return (
+        "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));"
+        f"gap:6px;margin-top:4px;'>{cells}</div>"
+    )
+
+
 def _sector_treemap(sectors):
     """面積＝指数内の比率目安（静的概算）、色＝当日の騰落率のツリーマップ。
 
@@ -324,6 +351,11 @@ def show_market_dashboard(ctx, prov=None, target=None):
                 width="stretch",
                 config={"displayModeBar": False},
             )
+
+        indices_html = _indices_html(ctx.get("indices"))
+        if indices_html is not None:
+            st.markdown("**指数・コモディティ（前日比）**")
+            st.markdown(indices_html, unsafe_allow_html=True)
 
         stocks = prov.stock_heatmap(target) if prov and target else []
         stock_treemap = _stock_treemap(stocks)

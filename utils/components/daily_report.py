@@ -10,6 +10,10 @@ def show_daily_report(report, group, timeline=None, month=None, unit="month", ov
 
     overlay: 群3だけに追加する1ブロック（{"text":..., "chart": None}）。
     群2と同じ本文の、締めの直前に挟む。知識の中身は増やさず、差はこの1段落だけにする。
+
+    画像添付機能は2026-09-23に廃止した(pick_news_image()関連コードは削除済み)。
+    本番の実データでは実際の記事を再現できず訴求力に欠けるという指摘から、
+    ニュースは画像ではなく見出し5本(show_news())で伝える方式に一本化した。
     """
     if group == 1:
         return

@@ -2,6 +2,7 @@ import uuid
 import streamlit as st
 
 from utils.storage import init_results_db, create_participant, save_fin_literacy, save_progress
+from utils.components.ui_scale import render_scale_control, inject_scale_css
 from utils.pre_survey import (
     GENDER_OPTIONS,
     INVEST_EXPERIENCE_OPTIONS,
@@ -14,6 +15,9 @@ from utils.pre_survey import (
 
 INITIAL_CASH = 500000    # 初期資産
 MONTHLY_BUDGET = 50000   # 毎月の余剰資金
+
+render_scale_control()
+inject_scale_css()
 
 st.title("事前アンケート")
 
