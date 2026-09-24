@@ -108,7 +108,7 @@ show_price_grid(prov, rep["date"])
 
 # VIX・Fear & Greed・主要指数・セクター別を、実験側（群3等）と同じダッシュボードで見せる。
 # これまでは簡易な数値表示だけだったが、既存のコンポーネントをそのまま流用できるので揃えた
-show_market_dashboard(mc, prov, rep["date"])
+show_market_dashboard(mc, prov, rep["date"], history=rep.get("history"))
 
 ytd_fig = fig_ytd_drawdown_yoy(rep.get("ytd_years") or {})
 if ytd_fig is not None:
@@ -180,19 +180,35 @@ st.markdown("#### 💬 今日の日報について聞く")
 st.caption("今日の日報・長期投資の知識（登録していればあなたの資産状況も）をもとに答えます。"
           "個別銘柄の売買判断はしません。")
 
-with st.container(height=420, border=True):  # 対話欄の中だけで固定表示にする（ページ全体を追いかけない）
-    _log_key = f"dialogue_{rep['date']}"
-    if _log_key not in st.session_state:
-        st.session_state[_log_key] = portfolio_store.load_today_log(rep["date"])
+# 2026-09-24: 入力欄を、対話欄の中に固定する方式（page全体を追いかけない）から、
+# Streamlit標準の「ページ下部に追従する」チャット入力欄に戻した（本人要望）。
+# ただし標準のままだと入力欄の上下の余白がやや大きいので、CSSで高さを抑える。
+st.markdown(
+    """<style>
+    [data-testid="stBottomBlockContainer"] { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+    [data-testid="stChatInput"] textarea { min-height: 2.2rem; }
+    </style>""",
+    unsafe_allow_html=True,
+)
 
+# ログ表示用の入れ物だけ先に確保しておき、後で（chat_inputの処理後にも）
+# 同じ入れ物にメッセージを足せるようにする（chat_inputはページ直下でしか
+# 下部固定にならないため、containerの外に出す必要があった）。
+_log_box = st.container(height=360, border=True)
+_log_key = f"dialogue_{rep['date']}"
+if _log_key not in st.session_state:
+    st.session_state[_log_key] = portfolio_store.load_today_log(rep["date"])
+
+with _log_box:
     for _turn in st.session_state[_log_key]:
         with st.chat_message(_turn["role"]):
             st.write(_turn["content"])
 
-    _user_q = st.chat_input("質問を入力（例：今日はなぜ下がったの？）")
-    if _user_q:
-        st.session_state[_log_key].append({"role": "user", "content": _user_q})
-        portfolio_store.log_turn(rep["date"], "user", _user_q)
+_user_q = st.chat_input("質問を入力（例：今日はなぜ下がったの？）")
+if _user_q:
+    st.session_state[_log_key].append({"role": "user", "content": _user_q})
+    portfolio_store.log_turn(rep["date"], "user", _user_q)
+    with _log_box:
         with st.chat_message("user"):
             st.write(_user_q)
         with st.chat_message("assistant"):
@@ -207,5 +223,5 @@ with st.container(height=420, border=True):  # 対話欄の中だけで固定表
                 except Exception as e:
                     _answer = f"すみません、うまく答えられませんでした（{e}）。少し時間をおいて試してください。"
             st.write(_answer)
-        st.session_state[_log_key].append({"role": "assistant", "content": _answer})
-        portfolio_store.log_turn(rep["date"], "assistant", _answer)
+    st.session_state[_log_key].append({"role": "assistant", "content": _answer})
+    portfolio_store.log_turn(rep["date"], "assistant", _answer)

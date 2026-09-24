@@ -11,9 +11,10 @@ import streamlit as st
 from utils.chart_notes import DOWN as _D, FLAT, UP, build
 from utils.visuals import CAT, DOWN, FONT, GRID, MUTED
 
-# 並べる順。上ほど長期投資の判断に近く、下ほど「眺めるだけ」でよいもの
-ORDER = ["index", "drawdown", "fear_greed", "vix", "rates", "fx",
-         "sectors", "semis", "gold", "btc"]
+# 並べる順。上ほど長期投資の判断に近く、下ほど「眺めるだけ」でよいもの。
+# 2026-09-24: 「セクター別・SOX・BTCは不要」という指摘を受け、ORDERから外した
+# （knowledge/chart_reading.jsonの定義自体は残してあるので、必要になれば戻せる）。
+ORDER = ["index", "drawdown", "fear_greed", "vix", "rates", "fx", "gold"]
 
 TREND_MARK = {UP: "↗", _D: "↘", FLAT: "→"}
 
@@ -64,8 +65,12 @@ def show_reading_board(ctx, history, columns=2, links=None):
                 mark = next((m for t, m in TREND_MARK.items() if t in (n["now"] or "")), "")
                 st.markdown(f"**{n['title']}** {mark}")
                 _spark(history.get(k), k)
+                # 2026-09-24: 「直近の傾向」「これに対する見解」の2行に絞る形に変更。
+                # 以前は「now」（傾向）の下に、毎日同じ長文の固定解説（read）を小さく薄い
+                # 文字で添えていたが、「見方の見方が分からない」「説明が長め小さめ」という
+                # 指摘を受けた。read側もこのタイミングで各指標1文程度に短縮済み
+                # （knowledge/chart_reading.json）。
                 if n["now"]:
-                    st.caption(n["now"])
-                st.markdown(
-                    f"<div style='font-size:0.86rem;line-height:1.6;opacity:0.9'>"
-                    f"{n['read']}</div>", unsafe_allow_html=True)
+                    st.markdown(f"**直近の傾向：** {n['now']}")
+                if n["read"]:
+                    st.markdown(f"**これに対する見解：** {n['read']}")

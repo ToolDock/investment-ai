@@ -36,10 +36,43 @@ CAT = ["#1f6feb", "#bf6516"]
 DOWN = "#c62828"
 UP = "#2e7d32"
 REF = "#9aa4ae"
-INK = "#1f2328"
-MUTED = "#62696f"
-GRID = "#e3e6ea"
-SURFACE = "#ffffff"
+def _dark_mode():
+    """いまのStreamlitのテーマ（ライト/ダーク）を見て、チャートの地色・文字色を選ぶための判定。
+
+    2026-09-24: 背景・文字色を白固定(#ffffff・#1f2328)にしていたため、ダークモードだと
+    チャートだけ白い板のまま浮いて見える不具合があった（本人からの指摘で発覚）。
+    st.context.theme.type（Streamlit 1.64で利用可能）で判定する。このモジュールは
+    build_static.py 等、Streamlitのスクリプト実行文脈の外から使われることもあるため、
+    取得できない場合は例外を握りつぶしてライト側にフォールバックする。
+    """
+    try:
+        import streamlit as st
+        return st.context.theme.get("type") == "dark"
+    except Exception:
+        return False
+
+
+def INK():
+    return "#e8eaed" if _dark_mode() else "#1f2328"
+
+
+def MUTED():
+    return "rgba(154,164,174,0.95)" if _dark_mode() else "#62696f"
+
+
+def GRID():
+    return "rgba(255,255,255,0.16)" if _dark_mode() else "#e3e6ea"
+
+
+def SURFACE():
+    # 地色は常に透明にして、ページの背景（ライト/ダーク）にそのまま乗せる。
+    # テーブルのセル背景など「板」が要る箇所だけ、ダークモードでは薄い灰、
+    # ライトモードでは白にする（_TABLE_FILL を使う）。
+    return "rgba(0,0,0,0)"
+
+
+def _table_fill():
+    return "rgba(255,255,255,0.06)" if _dark_mode() else "#ffffff"
 
 FONT = 'system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif'
 
@@ -78,7 +111,7 @@ def fig_price_series(bars, ref, kind="daily", offset=0, height=220):
         hovertemplate=hover, showlegend=False,
     ))
     fig.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor",
-                     spikethickness=1, spikedash="dot", spikecolor=MUTED, **tick)
+                     spikethickness=1, spikedash="dot", spikecolor=MUTED(), **tick)
     fig.update_yaxes(tickformat=",.0f")
     fig.update_layout(hovermode="x unified")
     return _base(fig, height=height, margin=dict(l=8, r=8, t=8, b=8))
@@ -93,16 +126,16 @@ def _base(fig, height=340, legend=False, margin=None):
     fig.update_layout(
         height=height,
         margin=margin or dict(l=8, r=8, t=8, b=8),
-        paper_bgcolor=SURFACE,
-        plot_bgcolor=SURFACE,
-        font=dict(family=FONT, size=13, color=INK),
+        paper_bgcolor=SURFACE(),
+        plot_bgcolor=SURFACE(),
+        font=dict(family=FONT, size=13, color=INK()),
         hoverlabel=dict(font_family=FONT),
         showlegend=legend,
     )
-    fig.update_xaxes(showgrid=False, linecolor=GRID, ticks="outside",
-                     tickcolor=GRID, tickfont=dict(color=MUTED))
-    fig.update_yaxes(gridcolor=GRID, zeroline=False, linecolor=SURFACE,
-                     tickfont=dict(color=MUTED))
+    fig.update_xaxes(showgrid=False, linecolor=GRID(), ticks="outside",
+                     tickcolor=GRID(), tickfont=dict(color=MUTED()))
+    fig.update_yaxes(gridcolor=GRID(), zeroline=False, linecolor=SURFACE(),
+                     tickfont=dict(color=MUTED()))
     return fig
 
 
@@ -120,10 +153,10 @@ def fig_bear_markets(hv):
     fig = go.Figure(go.Table(
         columnwidth=[34, 16, 16, 17, 17],
         header=dict(values=["局面", "ピーク", "下落率", "下落期間", "回復まで"],
-                    fill_color=SURFACE, line_color=GRID, align="left",
-                    font=dict(family=FONT, size=13, color=MUTED), height=30),
-        cells=dict(values=cells, fill_color=SURFACE, line_color=GRID, align="left",
-                   font=dict(family=FONT, size=13, color=INK), height=28),
+                    fill_color=_table_fill(), line_color=GRID(), align="left",
+                    font=dict(family=FONT, size=13, color=MUTED()), height=30),
+        cells=dict(values=cells, fill_color=_table_fill(), line_color=GRID(), align="left",
+                   font=dict(family=FONT, size=13, color=INK()), height=28),
     ))
     return _base(fig, height=30 + 28 * len(rows) + 20)
 
@@ -137,7 +170,7 @@ def fig_longterm_log(hv):
         x=years, y=vals, mode="lines", line=dict(color=CAT[0], width=2),
         hovertemplate="%{x}年<br>実質価格 %{y:,.0f}<extra></extra>"))
     fig.update_yaxes(type="log", dtick=1, title_text="実質価格（対数）",
-                     title_font=dict(color=MUTED, size=12))
+                     title_font=dict(color=MUTED(), size=12))
     fig.update_layout(hovermode="x unified")
     return _base(fig, height=320)
 
@@ -150,21 +183,21 @@ def fig_alltime_high(hv):
     allv = [h["all_avg"] for h in d["horizons"]]
     fig = go.Figure()
     fig.add_bar(x=hz, y=ath, name="最高値で買った", marker_color=CAT[0],
-                marker_line=dict(color=SURFACE, width=2),
+                marker_line=dict(color=SURFACE(), width=2),
                 text=[f"{v:+.1f}%" for v in ath], textposition="outside",
-                textfont=dict(color=MUTED, size=12),
+                textfont=dict(color=MUTED(), size=12),
                 hovertemplate="最高値で買った<br>%{x} %{y:+.1f}%<extra></extra>")
     fig.add_bar(x=hz, y=allv, name="いつでも買った", marker_color=CAT[1],
-                marker_line=dict(color=SURFACE, width=2),
+                marker_line=dict(color=SURFACE(), width=2),
                 text=[f"{v:+.1f}%" for v in allv], textposition="outside",
-                textfont=dict(color=MUTED, size=12),
+                textfont=dict(color=MUTED(), size=12),
                 hovertemplate="いつでも買った<br>%{x} %{y:+.1f}%<extra></extra>")
     fig.update_layout(barmode="group", bargap=0.42, bargroupgap=0.05,
                       legend=dict(orientation="h", y=1.14, x=0,
-                                  font=dict(color=MUTED, size=12)))
+                                  font=dict(color=MUTED(), size=12)))
     fig.update_traces(marker_cornerradius=4)
     fig.update_yaxes(title_text="その後の平均リターン", range=[0, max(allv) * 1.2],
-                     ticksuffix="%", title_font=dict(color=MUTED, size=12))
+                     ticksuffix="%", title_font=dict(color=MUTED(), size=12))
     return _base(fig, height=360, legend=True,
                  margin=dict(l=8, r=16, t=44, b=8))
 
@@ -177,14 +210,14 @@ def fig_missing_best_days(hv):
     vals = [i["value"] for i in items]
     fig = go.Figure(go.Bar(
         x=vals, y=labels, orientation="h", marker_color=CAT[0],
-        marker_line=dict(color=SURFACE, width=2),
+        marker_line=dict(color=SURFACE(), width=2),
         text=[f"{v:+.1f}%" if abs(v) >= 0.05 else "±0.0%" for v in vals],
-        textposition="outside", textfont=dict(color=MUTED, size=12),
+        textposition="outside", textfont=dict(color=MUTED(), size=12),
         hovertemplate="%{y}<br>%{x:+.1f}%<extra></extra>"))
     fig.update_layout(bargap=0.45)
     fig.update_traces(marker_cornerradius=4)
     fig.update_xaxes(title_text=f"累積リターン（{d['period']}）", range=[0, max(vals) * 1.18],
-                     ticksuffix="%", title_font=dict(color=MUTED, size=12))
+                     ticksuffix="%", title_font=dict(color=MUTED(), size=12))
     return _base(fig, height=300, margin=dict(l=8, r=24, t=8, b=8))
 
 
@@ -210,22 +243,22 @@ def fig_drawdown(timeline, month, unit="month"):
         hovertemplate="%{x}" + x_suffix + "<br>下落幅 %{y:.1f}%<extra></extra>"))
     # 今が過去最大と同値なら基準線は引かない（注記が重なるため）
     if abs(now - worst) >= 0.05:
-        fig.add_hline(y=worst, line=dict(color=MUTED, width=1, dash="dot"),
+        fig.add_hline(y=worst, line=dict(color=MUTED(), width=1, dash="dot"),
                       annotation_text=f"これまでの最大 {worst:.1f}%",
                       annotation_position="bottom left",
-                      annotation_font=dict(color=MUTED, size=12))
+                      annotation_font=dict(color=MUTED(), size=12))
     if months:
         label = (f"今 {now:.1f}%（過去最大と同水準）"
                  if abs(now - worst) < 0.05 else f"今 {now:.1f}%")
         fig.add_scatter(x=[months[-1]], y=[now], mode="markers+text",
                         marker=dict(color=DOWN, size=9,
-                                    line=dict(color=SURFACE, width=2)),
+                                    line=dict(color=SURFACE(), width=2)),
                         text=[label], textposition="top left",
-                        textfont=dict(color=INK, size=13), hoverinfo="skip")
-    fig.update_xaxes(title_text=x_title, title_font=dict(color=MUTED, size=12),
+                        textfont=dict(color=INK(), size=13), hoverinfo="skip")
+    fig.update_xaxes(title_text=x_title, title_font=dict(color=MUTED(), size=12),
                      range=[months[0] - 0.5, months[-1] + 0.8] if months else None)
     fig.update_yaxes(title_text="最高値からの下落幅",
-                     title_font=dict(color=MUTED, size=12), ticksuffix="%")
+                     title_font=dict(color=MUTED(), size=12), ticksuffix="%")
     fig.update_layout(hovermode="x unified")
     return _base(fig, height=400)
 
@@ -250,22 +283,22 @@ def fig_index_path(timeline, month, unit="month"):
         hovertemplate="%{x}" + x_suffix + "<br>指数 %{y:.1f}（開始時=100）<extra></extra>"))
     if peak_i not in (0, len(level) - 1):
         fig.add_scatter(x=[months[peak_i]], y=[level[peak_i]], mode="markers+text",
-                        marker=dict(color=MUTED, size=7,
-                                    line=dict(color=SURFACE, width=2)),
+                        marker=dict(color=MUTED(), size=7,
+                                    line=dict(color=SURFACE(), width=2)),
                         text=[f"最高値 {level[peak_i]:.0f} "], textposition="top left",
-                        textfont=dict(color=MUTED, size=12), hoverinfo="skip",
+                        textfont=dict(color=MUTED(), size=12), hoverinfo="skip",
                         showlegend=False)
     fig.add_scatter(x=[months[-1]], y=[now], mode="markers+text",
                     marker=dict(color=CAT[0], size=9,
-                                line=dict(color=SURFACE, width=2)),
+                                line=dict(color=SURFACE(), width=2)),
                     text=[f" 今 {now:.0f}（開始から{now - 100:+.1f}%）"],
                     textposition="middle left" if months[-1] > 40 else "middle right",
-                    textfont=dict(color=INK, size=13), hoverinfo="skip",
+                    textfont=dict(color=INK(), size=13), hoverinfo="skip",
                     showlegend=False)
     fig.update_xaxes(title_text=x_title, range=[-1, max(months) + 2],
-                     title_font=dict(color=MUTED, size=12))
+                     title_font=dict(color=MUTED(), size=12))
     fig.update_yaxes(title_text="指数（開始時＝100）",
-                     title_font=dict(color=MUTED, size=12))
+                     title_font=dict(color=MUTED(), size=12))
     fig.update_layout(hovermode="x unified")
     return _base(fig, height=400, margin=dict(l=8, r=20, t=12, b=8))
 
@@ -288,20 +321,20 @@ def fig_fear_greed(timeline, month, unit="month"):
     for lo, hi, label, col in FG_BANDS:
         fig.add_hrect(y0=lo, y1=hi, fillcolor=col, opacity=0.10, line_width=0,
                       annotation_text=label, annotation_position="right",
-                      annotation_font=dict(color=MUTED, size=11))
+                      annotation_font=dict(color=MUTED(), size=11))
     fig.add_scatter(x=months, y=vals, mode="lines",
-                    line=dict(color=INK, width=2),
+                    line=dict(color=INK(), width=2),
                     hovertemplate="%{x}" + x_suffix +
                                   "<br>Fear &amp; Greed %{y}<extra></extra>")
     now = vals[-1]
     fig.add_scatter(x=[months[-1]], y=[now], mode="markers+text",
-                    marker=dict(color=INK, size=9, line=dict(color=SURFACE, width=2)),
+                    marker=dict(color=INK(), size=9, line=dict(color=SURFACE(), width=2)),
                     text=[f" 今 {now}"], textposition="middle left",
-                    textfont=dict(color=INK, size=13), hoverinfo="skip",
+                    textfont=dict(color=INK(), size=13), hoverinfo="skip",
                     showlegend=False)
-    fig.update_xaxes(title_text=x_title, title_font=dict(color=MUTED, size=12))
+    fig.update_xaxes(title_text=x_title, title_font=dict(color=MUTED(), size=12))
     fig.update_yaxes(title_text="Fear & Greed", range=[0, 100],
-                     title_font=dict(color=MUTED, size=12))
+                     title_font=dict(color=MUTED(), size=12))
     return _base(fig, height=300, margin=dict(l=8, r=60, t=12, b=8))
 
 
@@ -366,18 +399,22 @@ def fig_recent_drawdowns(hv, timeline=None, month=None, unit="month"):
                                           "<br>下落幅 %{y:.1f}%<extra></extra>")
             fig.add_scatter(x=[xs[-1]], y=[ys[-1]], mode="markers+text",
                             marker=dict(color=DOWN, size=9,
-                                        line=dict(color=SURFACE, width=2)),
+                                        line=dict(color=SURFACE(), width=2)),
                             text=[f" 今回 {ys[-1]:.1f}%"], textposition="middle right",
-                            textfont=dict(color=INK, size=13), hoverinfo="skip",
+                            textfont=dict(color=INK(), size=13), hoverinfo="skip",
                             showlegend=False)
 
     fig.update_xaxes(title_text="ピークからの経過月数", range=[-0.4, xmax * 1.05 + 1.6],
-                     title_font=dict(color=MUTED, size=12))
+                     title_font=dict(color=MUTED(), size=12))
     fig.update_yaxes(title_text="最高値からの下落幅", ticksuffix="%",
-                     title_font=dict(color=MUTED, size=12))
-    fig.update_layout(legend=dict(orientation="h", y=1.13, x=0,
-                                  font=dict(color=MUTED, size=12)))
-    return _base(fig, height=380, legend=True, margin=dict(l=8, r=16, t=40, b=8))
+                     title_font=dict(color=MUTED(), size=12))
+    # 凡例をチャート上部(y=1.13)に置いていたが、ラベルが長く(例:「2018年2月の急落
+    # （6.5か月で回復）」)、横並びの凡例が折り返して2〜3行になるとチャート本体の
+    # 折れ線に重なって読めなくなる不具合があった(2026-09-24、本人指摘)。
+    # チャート下部に置き、下マージンを広めに取って折り返し分の余白を確保する。
+    fig.update_layout(legend=dict(orientation="h", yanchor="top", y=-0.22, x=0,
+                                  font=dict(color=MUTED(), size=12)))
+    return _base(fig, height=400, legend=True, margin=dict(l=8, r=16, t=16, b=70))
 
 
 # ── セクター別騰落（対象日の内訳） ──────────────────
@@ -405,13 +442,13 @@ def fig_sector_performance(timeline, month):
     fig = go.Figure(go.Bar(
         x=vals, y=labels, orientation="h", marker_color=colors,
         text=[f"{v:+.1f}%" for v in vals], textposition="outside",
-        textfont=dict(color=MUTED, size=12),
+        textfont=dict(color=MUTED(), size=12),
         hovertemplate="%{y} %{x:+.1f}%<extra></extra>"))
     span = max(abs(min(vals)), abs(max(vals)), 1.0)
     fig.update_xaxes(title_text="騰落率", ticksuffix="%",
                      range=[-span * 1.35, span * 1.35],
-                     title_font=dict(color=MUTED, size=12), zeroline=True,
-                     zerolinecolor=GRID, zerolinewidth=1)
+                     title_font=dict(color=MUTED(), size=12), zeroline=True,
+                     zerolinecolor=GRID(), zerolinewidth=1)
     return _base(fig, height=32 * len(rows) + 40, margin=dict(l=8, r=32, t=8, b=8))
 
 
@@ -430,13 +467,13 @@ def fig_trend(values, title_y, suffix="", digits=1, color=None):
         x=xs, y=values, mode="lines", line=dict(color=color, width=2),
         hovertemplate="%{y:." + str(digits) + "f}" + suffix + "<extra></extra>"))
     fig.add_scatter(x=[xs[-1]], y=[now], mode="markers+text",
-                    marker=dict(color=color, size=9, line=dict(color=SURFACE, width=2)),
+                    marker=dict(color=color, size=9, line=dict(color=SURFACE(), width=2)),
                     text=[f" 今 {now:.{digits}f}{suffix}"], textposition="middle left",
-                    textfont=dict(color=INK, size=13), hoverinfo="skip", showlegend=False)
-    fig.update_xaxes(title_text=f"直近{n}営業日", title_font=dict(color=MUTED, size=12),
+                    textfont=dict(color=INK(), size=13), hoverinfo="skip", showlegend=False)
+    fig.update_xaxes(title_text=f"直近{n}営業日", title_font=dict(color=MUTED(), size=12),
                      showticklabels=False)
     fig.update_yaxes(title_text=title_y, ticksuffix=suffix,
-                     title_font=dict(color=MUTED, size=12))
+                     title_font=dict(color=MUTED(), size=12))
     return _base(fig, height=280, margin=dict(l=8, r=64, t=12, b=8))
 
 
@@ -482,12 +519,12 @@ def fig_ytd_drawdown_yoy(data):
                 hovertemplate=f"{y}年 " + "%{y:.1f}%<extra></extra>"))
 
     fig.update_xaxes(tickvals=_MONTH_STARTS, ticktext=_MONTH_LABELS, range=[1, 366],
-                     title_font=dict(color=MUTED, size=12))
+                     title_font=dict(color=MUTED(), size=12))
     fig.update_yaxes(title_text="年初来ドローダウン", ticksuffix="%",
-                     title_font=dict(color=MUTED, size=12))
+                     title_font=dict(color=MUTED(), size=12))
     fig.update_layout(hovermode="x unified",
                       legend=dict(orientation="h", x=0, y=1.12,
-                                  font=dict(color=MUTED, size=12)))
+                                  font=dict(color=MUTED(), size=12)))
     return _base(fig, height=420, margin=dict(l=8, r=16, t=44, b=8), legend=True)
 
 

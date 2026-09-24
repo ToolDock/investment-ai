@@ -158,7 +158,13 @@ st.caption("上の大きなチャートは市場（S&P500）の推移、こち�
            "灰色の点線が投入した金額の累計で、青い線との差が相場での損益です。")
 
 # ── 市況・SNS・参考書・日報（全群共通の情報） ──
-show_market_dashboard(market.get("market_context"))
+# VIXの推移は本番のようにLiveProvider.history()を持たないので、
+# timeline（月次の台本データ）から直近ぶんのVIXを取り出して代用する
+# （本人要望のVIXミニチャートを、本番だけでなく実験にも一応そろえる）。
+_vix_hist = [m["market_context"]["vix"] for m in timeline[:month]
+            if m.get("market_context", {}).get("vix") is not None][-20:]
+show_market_dashboard(market.get("market_context"),
+                      history={"vix": _vix_hist} if _vix_hist else None)
 show_sns(market["sns"])
 show_reference(phase, timeline=timeline, month=month, situation=market.get("situation"))
 

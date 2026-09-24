@@ -1,7 +1,7 @@
 import streamlit as st
 import plotly.graph_objects as go
 
-from utils.visuals import fig_price_series
+from utils.visuals import fig_price_series, _dark_mode
 
 # 「大きく」見せる指数・コモディティ（ToolDock寄りのカード）。
 # ドル円・金利はカード化せず、既存の st.metric（現在値＋前日比）のままにする
@@ -16,23 +16,30 @@ BIG_SYMBOLS = [
 
 PERIODS = ["1日", "1週間", "1か月", "年初来", "1年", "5年"]
 
-# 騰落率の連続配色（濃い赤→グレー→濃い緑）。ヒートマップ2種で共用
+# 騰落率の連続配色（濃い赤→グレー→濃い緑）。ヒートマップ2種で共用。
+# 2026-09-24: 中立色をほぼ白(#f5f5f2)にしていたため、ダークモードで中立に近い
+# セルだけ白い板のように浮いて見え、「配色が見づらい」という指摘につながった。
+# 中立色を白ではない中間グレーにし、cmin/cmaxも±2.5%→±4%に広げた
+# （実際の値動きは±5%近くまで出るため、±2.5%だと極端な銘柄が軒並み同じ色に
+# 飽和してしまい、差が読み取れなくなっていた）。
 _DIVERGING_COLORSCALE = [
     [0.0, "#c62828"],   # 濃い赤（他の画面のDOWNと同じ実色）
-    [0.25, "#ef9a9a"],  # 淡い赤
-    [0.5, "#f5f5f2"],   # ほぼ白（中立。ここを白に近づけて背景を明るくする）
-    [0.75, "#a5d6a7"],  # 淡い緑
+    [0.25, "#e57373"],  # 淡い赤
+    [0.5, "#6b6f76"],   # 中間グレー（白ではないので、ダークモードでも浮かない）
+    [0.75, "#81c784"],  # 淡い緑
     [1.0, "#2e7d32"],   # 濃い緑（他の画面のUPと同じ実色）
 ]
+_CSCALE_RANGE = 4.0  # cmin=-4%, cmax=+4%
 
 
 def _contrast_text_colors(values):
-    """セルの色が濃いところは白文字、薄い（ほぼ白の）ところは黒文字にする。
+    """どのセルも白文字で統一する。
 
-    中立に近い値ほど背景がほぼ白くなる配色にしたので、白文字のままだと
-    読めなくなる。値の大きさで文字色を切り替えて、どのセルでも読めるようにする。
+    中立色を白から中間グレー(#6b6f76)に変えたので、中立に近いセルでも
+    白文字のコントラストが保てるようになった（旧仕様はほぼ白の背景に
+    合わせて黒文字に切り替える必要があったが、その分岐は不要になった）。
     """
-    return ["#ffffff" if abs(v) >= 1.2 else "#1a1a1a" for v in values]
+    return ["#ffffff" for _ in values]
 
 SECTOR_JA = {
     "Technology": "テクノロジー",
@@ -63,6 +70,30 @@ SECTOR_WEIGHT = {
     "Real Estate": 1.7,
     "Basic Materials": 1.7,
 }
+
+
+def _vix_spark(values):
+    """VIXの直近の推移を、メーターの隣に小さく添える折れ線。
+
+    大きな図は要らない（本人の要望："大きくなくてよいので、メーターの隣に"）。
+    上昇＝警戒が強まっている、として赤、低下＝落ち着いてきている、として緑にする
+    （価格系のスパークライン(_spark, reading_board.py)とは上下の意味が逆になる点に注意）。
+    """
+    if not values or len(values) < 5:
+        return None
+    rising = values[-1] > values[0]
+    color = "#c62828" if rising else "#2e7d32"
+    r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+    fig = go.Figure(go.Scatter(
+        y=values, mode="lines", line=dict(color=color, width=2),
+        hoverinfo="skip", fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.12)"))
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False,
+                     range=[min(values) * 0.95, max(values) * 1.05])
+    fig.update_layout(height=48, margin=dict(l=0, r=0, t=2, b=0),
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      showlegend=False)
+    return fig
 
 
 def _fg_gauge(value, classification):
@@ -178,8 +209,8 @@ def _sector_treemap(sectors):
         marker=dict(
             colors=changes,
             colorscale=_DIVERGING_COLORSCALE,
-            cmin=-2.5, cmid=0, cmax=2.5,
-            line=dict(width=2, color="#ffffff"),
+            cmin=-_CSCALE_RANGE, cmid=0, cmax=_CSCALE_RANGE,
+            line=dict(width=2, color="#1c1f24" if _dark_mode() else "#ffffff"),  # セル間の区切り線。地の色に合わせないとダークモードで白い格子が浮く
         ),
         text=[f"{c:+.1f}%" for c in changes],
         texttemplate="<b>%{label}</b><br>%{text}",
@@ -188,7 +219,7 @@ def _sector_treemap(sectors):
         pathbar=dict(visible=False),
     ))
     fig.update_layout(margin=dict(l=4, r=4, t=4, b=4), height=260,
-                      paper_bgcolor="#ffffff", plot_bgcolor="#ffffff")
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     return fig
 
 
@@ -229,8 +260,8 @@ def _stock_treemap(stocks):
         marker=dict(
             colors=colors,
             colorscale=_DIVERGING_COLORSCALE,
-            cmin=-2.5, cmid=0, cmax=2.5,
-            line=dict(width=2, color="#ffffff"),
+            cmin=-_CSCALE_RANGE, cmid=0, cmax=_CSCALE_RANGE,
+            line=dict(width=2, color="#1c1f24" if _dark_mode() else "#ffffff"),  # セル間の区切り線。地の色に合わせないとダークモードで白い格子が浮く
         ),
         text=texts,
         texttemplate="<b>%{label}</b><br>%{text}",
@@ -241,7 +272,7 @@ def _stock_treemap(stocks):
         tiling=dict(pad=2),
     ))
     fig.update_layout(margin=dict(l=4, r=4, t=4, b=4), height=420,
-                      paper_bgcolor="#ffffff", plot_bgcolor="#ffffff")
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     return fig
 
 
@@ -313,12 +344,16 @@ def show_price_grid(prov, target):
                 show_price_card(prov, target, symbol, label)
 
 
-def show_market_dashboard(ctx, prov=None, target=None):
+def show_market_dashboard(ctx, prov=None, target=None, history=None):
     """market_context（VIX・Fear&Greed・個別銘柄ヒートマップ）を表示。全群共通の市況情報。
 
     prov・target を渡すと、個別銘柄（S&P500主要銘柄）のヒートマップを live で引いて
     使う（本番のみ。実験には prov が無いので、そのときは従来のセクター単位のまま）。
     個別銘柄データがまだ揃っていない日は、自動でセクター単位の簡易版に落ちる。
+
+    history（{"vix": [...]} 等、LiveProvider.history()と同じ形）を渡すと、
+    VIXメーターの隣に直近の推移を小さく添える（本人要望、2026-09-24）。
+    無くても動く（実験側は当面渡さない。渡さなければ従来どおり数値のみ）。
     """
     if not ctx:
         return
@@ -343,6 +378,12 @@ def show_market_dashboard(ctx, prov=None, target=None):
                 "極度の警戒"
             )
             st.caption(f"市場の警戒度：{level}")
+            vix_hist = (history or {}).get("vix")
+            if vix_hist:
+                vfig = _vix_spark(vix_hist)
+                if vfig is not None:
+                    st.plotly_chart(vfig, width="stretch",
+                                    config={"displayModeBar": False})
 
         with c2:
             fg = ctx["fear_greed"]
