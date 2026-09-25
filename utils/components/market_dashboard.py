@@ -1,7 +1,7 @@
 import streamlit as st
 import plotly.graph_objects as go
 
-from utils.visuals import fig_price_series, _dark_mode
+from utils.visuals import fig_price_series, _dark_mode, GRID, MUTED, FONT
 
 # 「大きく」見せる指数・コモディティ（ToolDock寄りのカード）。
 # ドル円・金利はカード化せず、既存の st.metric（現在値＋前日比）のままにする
@@ -73,26 +73,35 @@ SECTOR_WEIGHT = {
 
 
 def _vix_spark(values):
-    """VIXの直近の推移を、メーターの隣に小さく添える折れ線。
+    """VIXの直近の推移を、メーターの隣に添える折れ線。
 
-    大きな図は要らない（本人の要望："大きくなくてよいので、メーターの隣に"）。
     上昇＝警戒が強まっている、として赤、低下＝落ち着いてきている、として緑にする
     （価格系のスパークライン(_spark, reading_board.py)とは上下の意味が逆になる点に注意）。
+
+    2026-09-25: 最初は軸なしの極小チャートにしていたが、「高さと縦軸横軸がないので
+    見にくい」と指摘を受けた。数値の目盛り（縦軸）と、期間の目安（横軸）を
+    最小限つけて、高さも少し確保する。
     """
     if not values or len(values) < 5:
         return None
     rising = values[-1] > values[0]
     color = "#c62828" if rising else "#2e7d32"
     r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+    n = len(values)
     fig = go.Figure(go.Scatter(
         y=values, mode="lines", line=dict(color=color, width=2),
         hoverinfo="skip", fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.12)"))
-    fig.update_xaxes(visible=False)
-    fig.update_yaxes(visible=False,
-                     range=[min(values) * 0.95, max(values) * 1.05])
-    fig.update_layout(height=48, margin=dict(l=0, r=0, t=2, b=0),
+    fig.update_xaxes(
+        visible=True, showgrid=False, showline=False, zeroline=False,
+        tickmode="array", tickvals=[0, n - 1], ticktext=[f"{n}営業日前", "今日"],
+        tickfont=dict(color=MUTED(), size=10))
+    fig.update_yaxes(
+        visible=True, showline=False, zeroline=False,
+        gridcolor=GRID(), tickfont=dict(color=MUTED(), size=10),
+        range=[min(values) * 0.9, max(values) * 1.1], nticks=3)
+    fig.update_layout(height=110, margin=dict(l=0, r=4, t=4, b=4),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                      showlegend=False)
+                      showlegend=False, font=dict(family=FONT))
     return fig
 
 
@@ -235,13 +244,20 @@ def _stock_treemap(stocks):
         return None
     sectors = sorted({s["sector"] for s in stocks})
 
+    # 見出しセル（セクター名の帯）は colorscale の中立色（0）を使っていたが、
+    # ダークモード対応でその中立色を白系からグレーに変えた結果、見出し帯が
+    # 灰色になって見づらくなった（本人指摘、2026-09-25）。見出しは数値と無関係な
+    # ラベルなので、colorscale を経由させず、常に白で固定する
+    # （Plotlyのcolorsは数値とCSS色文字列を混在できる。数値のセルだけcolorscaleが効く）。
+    HEADER_COLOR = "#ffffff"
+    HEADER_TEXT_COLOR = "#2b2f33"
     labels, parents, values, colors, texts, hovers = [], [], [], [], [], []
     for sec in sectors:
         total_w = sum(s["weight_pct"] for s in stocks if s["sector"] == sec)
         labels.append(SECTOR_JA.get(sec, sec))
         parents.append("")
         values.append(total_w)
-        colors.append(0)
+        colors.append(HEADER_COLOR)
         texts.append("")
         hovers.append(SECTOR_JA.get(sec, sec))
     for s in stocks:
@@ -265,7 +281,10 @@ def _stock_treemap(stocks):
         ),
         text=texts,
         texttemplate="<b>%{label}</b><br>%{text}",
-        textfont=dict(color=_contrast_text_colors(colors), size=11),
+        textfont=dict(
+            color=[HEADER_TEXT_COLOR] * len(sectors)
+                  + _contrast_text_colors([s["change_pct"] for s in stocks]),
+            size=11),
         customdata=hovers,
         hovertemplate="%{customdata}<br>時価総額比率 目安%{value:.2f}%<extra></extra>",
         pathbar=dict(visible=False),
