@@ -235,7 +235,10 @@ def _sector_treemap(sectors):
         textfont=dict(color=_contrast_text_colors(changes), size=15),  # 2026-09-25: 少し大きく
         hovertemplate="%{label} %{text}<br>指数内の比率 目安%{value:.1f}%<extra></extra>",
         pathbar=dict(visible=False),
-        tiling=dict(pad=0),
+        # 2026-09-25: 全部くっつけると逆にセクターの境目が分かりにくいとの指摘で、
+        # セル間にごく細い隙間を入れてセクター同士の境界だけ見やすくした
+        # （ルートに密着したまま=枠の露出は無いので、外周には影響しない）。
+        tiling=dict(pad=3),
         # 2026-09-25: root.color はこの環境のplotly.jsでは無視され、隙間から#444444が
         # 露出し続けるバグがあった（実データで再現確認済み）。marker.pad/tiling.padを
         # ゼロにして、そもそも地色が露出する隙間自体を無くす方式に変更（この関数は
@@ -318,7 +321,10 @@ def _stock_treemap(stocks):
         customdata=hovers,
         hovertemplate="%{customdata}<br>時価総額比率 目安%{value:.2f}%<extra></extra>",
         pathbar=dict(visible=False),
-        tiling=dict(pad=0),
+        # 2026-09-25: 全部くっつけると逆にセクターの境目が分かりにくいとの指摘で、
+        # セル間にごく細い隙間を入れてセクター同士の境界だけ見やすくした
+        # （ルートに密着したまま=枠の露出は無いので、外周には影響しない）。
+        tiling=dict(pad=3),
     ))
     fig.update_layout(margin=dict(l=4, r=4, t=4, b=4), height=560,  # 2026-09-25: 少し大きく
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
