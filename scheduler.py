@@ -43,8 +43,18 @@ def collect_all():
     try:
         import collect_us_market as um
         um.init_tables()
-        um.refresh_all()
-        log.info("米国市場: 完了")
+        # refresh_all() は失敗した銘柄のリストを返すが、これまで受け取るだけで
+        # 中身を見ていなかった。個別銘柄（ヒートマップ用、80銘柄超）は
+        # 1つずつ取得していて、途中で失敗しても例外を出さず次に進む作りなので、
+        # このリストを見ないと「収集は完了しているのにヒートマップだけ古いまま」
+        # という状態に気づけない（本人指摘、2026-09-25）。件数と銘柄名をログに出す
+        failed_symbols = um.refresh_all()
+        if failed_symbols:
+            names = ", ".join(s for s, _ in failed_symbols[:15])
+            more = f" 他{len(failed_symbols) - 15}件" if len(failed_symbols) > 15 else ""
+            log.warning(f"米国市場: 完了（ただし{len(failed_symbols)}銘柄が失敗: {names}{more}）")
+        else:
+            log.info("米国市場: 完了")
     except Exception as e:
         log.error(f"米国市場: 失敗 {e}")
 
