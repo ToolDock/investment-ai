@@ -50,5 +50,17 @@ jobs:
           git config user.name "investment-ai-bot"
           git config user.email "actions@users.noreply.github.com"
           git add investment_ai.db
-          git diff --cached --quiet && echo "変更なし" || git commit -m "自動更新: $(date -u +%Y-%m-%d) の収集・日報"
-          git push
+          git diff --cached --quiet && { echo "変更なし"; exit 0; }
+          git commit -m "自動更新: $(date -u +%Y-%m-%d) の収集・日報"
+          # このジョブが投稿する直前に、手元からのpushが先に main に反映されていると
+          # 素のpushは拒否される（2026-09-25、本人が手動実行時に遭遇）。
+          # pull --rebaseしてから3回までリトライする
+          for i in 1 2 3; do
+            if git push; then
+              exit 0
+            fi
+            echo "push失敗。pullして${i}回目のリトライをします"
+            git pull --rebase --autostash origin main
+          done
+          echo "3回試してもpushできませんでした"
+          exit 1
