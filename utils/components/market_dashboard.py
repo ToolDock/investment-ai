@@ -234,6 +234,8 @@ def _sector_treemap(sectors):
         textfont=dict(color=_contrast_text_colors(changes), size=15),  # 2026-09-25: 少し大きく
         hovertemplate="%{label} %{text}<br>指数内の比率 目安%{value:.1f}%<extra></extra>",
         pathbar=dict(visible=False),
+        root=dict(color="rgba(0,0,0,0)"),  # 2026-09-25: セル間の余白から見えていた
+        # 灰色の外枠（Treemapの見えないルート要素の地色）を透明にして消した
     ))
     fig.update_layout(margin=dict(l=4, r=4, t=4, b=4), height=320,  # 2026-09-25: 少し大きく
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
@@ -306,6 +308,9 @@ def _stock_treemap(stocks):
         hovertemplate="%{customdata}<br>時価総額比率 目安%{value:.2f}%<extra></extra>",
         pathbar=dict(visible=False),
         tiling=dict(pad=2),
+        root=dict(color="rgba(0,0,0,0)"),  # 2026-09-25: セル間の余白から見えていた
+        # 灰色の外枠（Treemapの見えないルート要素の地色）を透明にして消した
+        # （本人要望：ライト・ダーク関係なく外枠自体を無くす）
     ))
     fig.update_layout(margin=dict(l=4, r=4, t=4, b=4), height=560,  # 2026-09-25: 少し大きく
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
