@@ -293,11 +293,15 @@ def _stock_treemap(stocks):
         text=texts,
         texttemplate="<b>%{label}</b><br>%{text}",
         textposition="middle center",  # 2026-09-25: ToolDock同様、銘柄名と%を箱の中央に
+        # 2026-09-25: textfont.size を見出し/銘柄で分けようと配列にしたところ、
+        # このStreamlit環境のplotly.jsではTreemapの size 配列指定がバグって
+        # 全セルが空パスになり、ヒートマップ全体が真っ暗な1色の箱になった
+        # （本人からの指摘で発覚、実データで再現確認済み）。size はスカラーに戻す。
+        # color の方は配列でも問題なく描画される。
         textfont=dict(
             color=[HEADER_TEXT_COLOR] * len(sectors)
                   + _contrast_text_colors([s["change_pct"] for s in stocks]),
-            # 見出し（セクター名）は少し控えめに、個別銘柄は読みやすく大きめに
-            size=[12] * len(sectors) + [15] * len(stocks)),
+            size=14),
         customdata=hovers,
         hovertemplate="%{customdata}<br>時価総額比率 目安%{value:.2f}%<extra></extra>",
         pathbar=dict(visible=False),
