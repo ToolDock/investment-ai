@@ -256,7 +256,10 @@ def _stock_treemap(stocks):
     # 灰色になって見づらくなった（本人指摘、2026-09-25）。見出しは数値と無関係な
     # ラベルなので、colorscale を経由させず、常に白で固定する
     # （Plotlyのcolorsは数値とCSS色文字列を混在できる。数値のセルだけcolorscaleが効く）。
-    HEADER_COLOR = "#ffffff"
+    # 2026-09-25: ライトモードでは地色(paper_bgcolor)がそもそも白いため、
+    # 見出しセルを常に白固定にすると背景と同化して箱の区切りが消えてしまう。
+    # ダークモードは白、ライトモードはGRID()の淡いグレーに出し分ける。
+    HEADER_COLOR = "#ffffff" if _dark_mode() else GRID()
     HEADER_TEXT_COLOR = "#2b2f33"
     labels, parents, values, colors, texts, hovers = [], [], [], [], [], []
     for sec in sectors:
