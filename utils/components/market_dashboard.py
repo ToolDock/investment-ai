@@ -230,7 +230,8 @@ def _sector_treemap(sectors):
         ),
         text=[f"{c:+.1f}%" for c in changes],
         texttemplate="<b>%{label}</b><br>%{text}",
-        textfont=dict(color=_contrast_text_colors(changes), size=13),
+        textposition="middle center",  # 2026-09-25: ToolDock同様、銘柄名と%を箱の中央に
+        textfont=dict(color=_contrast_text_colors(changes), size=15),  # 2026-09-25: 少し大きく
         hovertemplate="%{label} %{text}<br>指数内の比率 目安%{value:.1f}%<extra></extra>",
         pathbar=dict(visible=False),
     ))
@@ -291,10 +292,12 @@ def _stock_treemap(stocks):
         ),
         text=texts,
         texttemplate="<b>%{label}</b><br>%{text}",
+        textposition="middle center",  # 2026-09-25: ToolDock同様、銘柄名と%を箱の中央に
         textfont=dict(
             color=[HEADER_TEXT_COLOR] * len(sectors)
                   + _contrast_text_colors([s["change_pct"] for s in stocks]),
-            size=11),
+            # 見出し（セクター名）は少し控えめに、個別銘柄は読みやすく大きめに
+            size=[12] * len(sectors) + [15] * len(stocks)),
         customdata=hovers,
         hovertemplate="%{customdata}<br>時価総額比率 目安%{value:.2f}%<extra></extra>",
         pathbar=dict(visible=False),
