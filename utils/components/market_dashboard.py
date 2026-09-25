@@ -227,6 +227,7 @@ def _sector_treemap(sectors):
             colorscale=_DIVERGING_COLORSCALE,
             cmin=-_CSCALE_RANGE, cmid=0, cmax=_CSCALE_RANGE,
             line=dict(width=0),  # 2026-09-25: セル間の黒縁取りをやめてほしいとの要望で、区切り線自体を無くした
+            pad=dict(t=0, l=0, r=0, b=0),
         ),
         text=[f"{c:+.1f}%" for c in changes],
         texttemplate="<b>%{label}</b><br>%{text}",
@@ -234,8 +235,11 @@ def _sector_treemap(sectors):
         textfont=dict(color=_contrast_text_colors(changes), size=15),  # 2026-09-25: 少し大きく
         hovertemplate="%{label} %{text}<br>指数内の比率 目安%{value:.1f}%<extra></extra>",
         pathbar=dict(visible=False),
-        root=dict(color="rgba(0,0,0,0)"),  # 2026-09-25: セル間の余白から見えていた
-        # 灰色の外枠（Treemapの見えないルート要素の地色）を透明にして消した
+        tiling=dict(pad=0),
+        # 2026-09-25: root.color はこの環境のplotly.jsでは無視され、隙間から#444444が
+        # 露出し続けるバグがあった（実データで再現確認済み）。marker.pad/tiling.padを
+        # ゼロにして、そもそも地色が露出する隙間自体を無くす方式に変更（この関数は
+        # 階層が1段だけなので、副作用なくこれで解決する）。
     ))
     fig.update_layout(margin=dict(l=4, r=4, t=4, b=4), height=320,  # 2026-09-25: 少し大きく
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
@@ -279,7 +283,8 @@ def _stock_treemap(stocks):
         values.append(s["weight_pct"])
         colors.append(s["change_pct"])
         texts.append(f"{s['change_pct']:+.1f}%")
-        hovers.append(f"{s['name']}（{s['symbol']}） {s['change_pct']:+.1f}%")
+        sec_ja = SECTOR_JA.get(s["sector"], s["sector"])
+        hovers.append(f"{sec_ja}・{s['name']}（{s['symbol']}） {s['change_pct']:+.1f}%")
 
     fig = go.Figure(go.Treemap(
         labels=labels,
@@ -291,6 +296,12 @@ def _stock_treemap(stocks):
             colorscale=_DIVERGING_COLORSCALE,
             cmin=-_CSCALE_RANGE, cmid=0, cmax=_CSCALE_RANGE,
             line=dict(width=0),  # 2026-09-25: セル間の黒縁取りをやめてほしいとの要望で、区切り線自体を無くした
+            # 2026-09-25: root.colorはこの環境のplotly.jsで無視され、隙間から#444444が
+            # 露出し続けるバグがあった（実データで再現確認済み）。marker.pad（配列不可・
+            # 全階層境界に一律適用）を全方向0にして、地色が露出する隙間自体を無くした。
+            # トレードオフ：これで見出しセル（セクター名）専用の帯は表示できなくなるので、
+            # セクター名はホバー表示（hovertemplate）に統一した。
+            pad=dict(t=0, l=0, r=0, b=0),
         ),
         text=texts,
         texttemplate="<b>%{label}</b><br>%{text}",
@@ -307,10 +318,7 @@ def _stock_treemap(stocks):
         customdata=hovers,
         hovertemplate="%{customdata}<br>時価総額比率 目安%{value:.2f}%<extra></extra>",
         pathbar=dict(visible=False),
-        tiling=dict(pad=2),
-        root=dict(color="rgba(0,0,0,0)"),  # 2026-09-25: セル間の余白から見えていた
-        # 灰色の外枠（Treemapの見えないルート要素の地色）を透明にして消した
-        # （本人要望：ライト・ダーク関係なく外枠自体を無くす）
+        tiling=dict(pad=0),
     ))
     fig.update_layout(margin=dict(l=4, r=4, t=4, b=4), height=560,  # 2026-09-25: 少し大きく
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
