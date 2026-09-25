@@ -91,6 +91,7 @@ def _vix_spark(values):
     fig = go.Figure(go.Scatter(
         y=values, mode="lines", line=dict(color=color, width=2),
         hoverinfo="skip", fill="tozeroy", fillcolor=f"rgba({r},{g},{b},0.12)"))
+    lo, hi = min(values), max(values)
     fig.update_xaxes(
         visible=True, showgrid=False, showline=False, zeroline=False,
         tickmode="array", tickvals=[0, n - 1], ticktext=[f"{n}営業日前", "今日"],
@@ -98,8 +99,11 @@ def _vix_spark(values):
     fig.update_yaxes(
         visible=True, showline=False, zeroline=False,
         gridcolor=GRID(), tickfont=dict(color=MUTED(), size=10),
-        range=[min(values) * 0.9, max(values) * 1.1], nticks=3)
-    fig.update_layout(height=110, margin=dict(l=0, r=4, t=4, b=4),
+        range=[lo * 0.9, hi * 1.1],
+        # nticks任せだと範囲によっては目盛りが1本しか出ないことがあったので、
+        # 実際の最小・最大を目盛りとして明示する（本人指摘、2026-09-25）
+        tickmode="array", tickvals=[round(lo, 1), round(hi, 1)])
+    fig.update_layout(height=110, margin=dict(l=32, r=4, t=4, b=24),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                       showlegend=False, font=dict(family=FONT))
     return fig
@@ -109,6 +113,9 @@ def _fg_gauge(value, classification):
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=value,
+        # domainを明示しないと、数値（number）が中央からずれて右寄りに出ることがあった
+        # （本人指摘、2026-09-25）。ゲージ全体を図の中央いっぱいに固定する
+        domain={"x": [0, 1], "y": [0, 1]},
         number={"font": {"size": 46}},
         title={"text": f"<span style='font-size:1.15em'>Fear &amp; Greed</span>"
                        f"<br><span style='font-size:1.0em;color:gray'>{classification}</span>"},
@@ -219,7 +226,7 @@ def _sector_treemap(sectors):
             colors=changes,
             colorscale=_DIVERGING_COLORSCALE,
             cmin=-_CSCALE_RANGE, cmid=0, cmax=_CSCALE_RANGE,
-            line=dict(width=2, color="#1c1f24" if _dark_mode() else "#ffffff"),  # セル間の区切り線。地の色に合わせないとダークモードで白い格子が浮く
+            line=dict(width=0),  # 2026-09-25: セル間の黒縁取りをやめてほしいとの要望で、区切り線自体を無くした
         ),
         text=[f"{c:+.1f}%" for c in changes],
         texttemplate="<b>%{label}</b><br>%{text}",
@@ -227,7 +234,7 @@ def _sector_treemap(sectors):
         hovertemplate="%{label} %{text}<br>指数内の比率 目安%{value:.1f}%<extra></extra>",
         pathbar=dict(visible=False),
     ))
-    fig.update_layout(margin=dict(l=4, r=4, t=4, b=4), height=260,
+    fig.update_layout(margin=dict(l=4, r=4, t=4, b=4), height=320,  # 2026-09-25: 少し大きく
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     return fig
 
@@ -277,7 +284,7 @@ def _stock_treemap(stocks):
             colors=colors,
             colorscale=_DIVERGING_COLORSCALE,
             cmin=-_CSCALE_RANGE, cmid=0, cmax=_CSCALE_RANGE,
-            line=dict(width=2, color="#1c1f24" if _dark_mode() else "#ffffff"),  # セル間の区切り線。地の色に合わせないとダークモードで白い格子が浮く
+            line=dict(width=0),  # 2026-09-25: セル間の黒縁取りをやめてほしいとの要望で、区切り線自体を無くした
         ),
         text=texts,
         texttemplate="<b>%{label}</b><br>%{text}",
@@ -290,7 +297,7 @@ def _stock_treemap(stocks):
         pathbar=dict(visible=False),
         tiling=dict(pad=2),
     ))
-    fig.update_layout(margin=dict(l=4, r=4, t=4, b=4), height=420,
+    fig.update_layout(margin=dict(l=4, r=4, t=4, b=4), height=560,  # 2026-09-25: 少し大きく
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     return fig
 
