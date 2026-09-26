@@ -63,6 +63,14 @@ def _load(day=None):
 
 st.title("今日の日報")
 
+# URLに ?demo=1 を付けたときだけの、紹介用の表示モード。
+# マイポートフォリオ・対話履歴（どちらも個人の資産状況が写り込む）を隠す。
+# 通常のURL（自分用のブックマーク）はこれまでどおり実データを表示する
+# （2026-09-26、本人からの要望：見せて紹介するとき資産状況が見えてしまうのは困る）。
+DEMO_MODE = st.query_params.get("demo") == "1"
+if DEMO_MODE:
+    st.caption("🔎 デモ表示中：マイポートフォリオ・対話履歴は個人情報のため表示していません。")
+
 status = _status()
 if status["state"] == "closed":
     st.info(f"{closed_message(status)}この日の日報はありません。"
@@ -156,23 +164,26 @@ if gap > 3 and status["state"] == "open":
 portfolio_store.init_store()
 
 st.markdown("---")
-with st.expander("💰 マイポートフォリオ（対話AIが参照します。空欄のままでもOK）"):
-    pf = portfolio_store.get_portfolio() or {}
-    with st.form("portfolio_form"):
-        cash_in = st.number_input("現金（円）", min_value=0, step=1000,
-                                  value=pf.get("cash") or 0)
-        invested_in = st.number_input("投資評価額（円）", min_value=0, step=1000,
-                                      value=pf.get("invested_value") or 0)
-        cost_in = st.number_input("取得原価・積立累計額（円）", min_value=0, step=1000,
-                                  value=pf.get("cost_basis") or 0)
-        if st.form_submit_button("更新"):
-            portfolio_store.save_portfolio(cash_in, invested_in, cost_in)
-            st.success("更新しました")
-            st.rerun()
-    if pf.get("updated_at"):
-        st.caption(f"最終更新：{pf['updated_at']}")
-    else:
-        st.caption("未登録。登録すると、対話AIが自分の含み損益を踏まえて答えられるようになります。")
+if DEMO_MODE:
+    st.caption("💰 マイポートフォリオ（デモ表示のため非表示）")
+else:
+    with st.expander("💰 マイポートフォリオ（対話AIが参照します。空欄のままでもOK）"):
+        pf = portfolio_store.get_portfolio() or {}
+        with st.form("portfolio_form"):
+            cash_in = st.number_input("現金（円）", min_value=0, step=1000,
+                                      value=pf.get("cash") or 0)
+            invested_in = st.number_input("投資評価額（円）", min_value=0, step=1000,
+                                          value=pf.get("invested_value") or 0)
+            cost_in = st.number_input("取得原価・積立累計額（円）", min_value=0, step=1000,
+                                      value=pf.get("cost_basis") or 0)
+            if st.form_submit_button("更新"):
+                portfolio_store.save_portfolio(cash_in, invested_in, cost_in)
+                st.success("更新しました")
+                st.rerun()
+        if pf.get("updated_at"):
+            st.caption(f"最終更新：{pf['updated_at']}")
+        else:
+            st.caption("未登録。登録すると、対話AIが自分の含み損益を踏まえて答えられるようになります。")
 
 # ── 対話AI（本日の日報について聞く） ──────────
 st.markdown("---")
@@ -197,7 +208,8 @@ st.markdown(
 _log_box = st.container(height=360, border=True)
 _log_key = f"dialogue_{rep['date']}"
 if _log_key not in st.session_state:
-    st.session_state[_log_key] = portfolio_store.load_today_log(rep["date"])
+    # デモ表示では過去の実際の会話（個人の資産状況が写り込みうる）を出さず、空の状態から始める
+    st.session_state[_log_key] = [] if DEMO_MODE else portfolio_store.load_today_log(rep["date"])
 
 with _log_box:
     for _turn in st.session_state[_log_key]:
@@ -207,16 +219,19 @@ with _log_box:
 _user_q = st.chat_input("質問を入力（例：今日はなぜ下がったの？）")
 if _user_q:
     st.session_state[_log_key].append({"role": "user", "content": _user_q})
-    portfolio_store.log_turn(rep["date"], "user", _user_q)
+    if not DEMO_MODE:
+        portfolio_store.log_turn(rep["date"], "user", _user_q)
     with _log_box:
         with st.chat_message("user"):
             st.write(_user_q)
         with st.chat_message("assistant"):
             with st.spinner("考え中…"):
                 _report_for_ai = {"headline": rep["headline"], "blocks": rep["blocks"]}
-                _pf_now = portfolio_store.get_portfolio()
+                # デモ表示では個人のポートフォリオ・直近の会話を対話AIに渡さない
+                _pf_now = None if DEMO_MODE else portfolio_store.get_portfolio()
                 _history = st.session_state[_log_key][:-1]   # 今回の発話は除く（今日ぶん）
-                _recent_days = portfolio_store.load_recent_days(rep["date"], n_days=5)
+                _recent_days = None if DEMO_MODE else portfolio_store.load_recent_days(
+                    rep["date"], n_days=5)
                 try:
                     _answer, _usage = dialogue_reply(_history, _user_q, _report_for_ai, _pf_now,
                                                      _recent_days, market_context=mc)
@@ -224,4 +239,5 @@ if _user_q:
                     _answer = f"すみません、うまく答えられませんでした（{e}）。少し時間をおいて試してください。"
             st.write(_answer)
     st.session_state[_log_key].append({"role": "assistant", "content": _answer})
-    portfolio_store.log_turn(rep["date"], "assistant", _answer)
+    if not DEMO_MODE:
+        portfolio_store.log_turn(rep["date"], "assistant", _answer)
