@@ -183,13 +183,13 @@ if st.session_state.group == 3:
 show_daily_report(market["daily_report"], st.session_state.group,
                   timeline=timeline, month=month, overlay=overlay)
 
-# ニュース見出しは日報のあと。本番（pages/10_today.py）と同じ並び順に揃えた
+# ニュース見出しは日報のあと。本番（production_app/10_today.py）と同じ並び順に揃えた
 # （本番は「日報が参照した報道をあとで確認する」という設計で日報のあとに置いており、
 # 実験側もそれに合わせた。2026-09-23）
 show_news(market["news"].get("headlines") or [])
 
 # ── 対話AI（群3のみ）───────────────────────
-# 本番（pages/10_today.py）で鍛えた対話AIを、実験の月次データでそのまま再利用する。
+# 本番（production_app/10_today.py）で鍛えた対話AIを、実験の月次データでそのまま再利用する。
 # utils.dialogue.reply() は report/portfolio/recent_days をただの辞書として受け取る
 # 作りにしてあるため、dialogue.py 自体は一切変更していない（実験・本番で1本にする、
 # という設計原則どおり）。会話ログは experiment_results.db 側に session_id・month

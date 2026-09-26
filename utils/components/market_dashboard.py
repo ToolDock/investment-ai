@@ -1,5 +1,6 @@
 import streamlit as st
 import plotly.graph_objects as go
+from collections import Counter
 
 from utils.visuals import fig_price_series, _dark_mode, GRID, MUTED, FONT
 
@@ -458,7 +459,12 @@ def show_market_dashboard(ctx, prov=None, target=None, history=None):
         if stock_treemap is not None:
             st.markdown("**個別銘柄（前日比・面積は時価総額比率の目安、セクターでグループ化）**")
             st.plotly_chart(stock_treemap, width="stretch", config={"displayModeBar": False})
-            st.caption("面積はS&P500主要銘柄の時価総額比率（概算）、色はその日の騰落率。"
+            # 銘柄ユニバースの更新が他データより遅れて1日ズレることがあるため、
+            # 実際にいつ時点のデータかを明示する（2026-09-24の指摘への対応、2026-09-26実装）
+            asof_counts = Counter(s["asof"] for s in stocks if s.get("asof"))
+            asof = asof_counts.most_common(1)[0][0] if asof_counts else None
+            asof_note = f"（{asof}時点）" if asof else ""
+            st.caption(f"面積はS&P500主要銘柄の時価総額比率（概算）、色はその日の騰落率{asof_note}。"
                       "緑が上げ、赤が下げ。")
         else:
             st.markdown("**セクター別（前日比・面積は指数内の時価総額比率の目安）**")

@@ -440,6 +440,7 @@ class LiveProvider(Provider):
                 out.append({
                     "symbol": s["symbol"], "name": s["name"], "sector": s["sector"],
                     "weight_pct": s["weight_pct"], "change_pct": change_pct,
+                    "asof": rows[0]["date"],  # 個別銘柄が実際にいつ時点のデータか（2026-09-26、本人指摘）
                 })
         finally:
             conn.close()
