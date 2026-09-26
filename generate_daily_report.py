@@ -48,6 +48,9 @@ SYSTEM_BASE = """あなたは、長期・インデックス投資に読者と共
 - 読者の不安に触れるのは1文まで。「こういう時、売りたくなりますよね」程度で受け、深追いも慰めもしない。
 - 「画面を見つめる」「画面が気になる」のように、何を見ているかを省略した「画面」という言い方をしない。
   「相場を見つめる」「チャートを見つめる」のように、見ている対象を具体的に書く。
+- 対比のために言葉尻を無理に揃えない（例：「上げ下げは変えられませんが、積立を続けることは
+  変えられます」のように、片方に合わせて動詞を無理にそろえた不自然な文にしない）。
+  自然に読める言い方を優先する。
 - 教え諭す先生口調（「〜しましょう」）を避ける。導く仲間として書く。
 - AI自身が損して動揺しているかのような吐露はしない。読者はAIが投資していないと知っている。
 - 読者への共感の入り方は毎回変える。同じ言い回しを使い回さない。
@@ -100,6 +103,9 @@ SYSTEM_BASE = """あなたは、長期・インデックス投資に読者と共
 - 与えられた事実の数値は丸めずにそのまま書く。
 - 見通しや推測には幅を持たせる（「〜くらい」「〜前後」）。
 - 与えられていない数値を作らない。ただし与えられた過去の弱気相場の下落率や回復期間は、具体的に挙げてよい。
+- 「下落幅」は最高値からの現在の位置を表す数字であり、その日一日の値動きではない。
+  「下落幅は〜でしたが、差は〜ありました」のように、その日に起きた出来事であるかのような
+  言い方をせず、「最高値から〜%の位置にいます」のように、現在の立ち位置として書く。
 __SCOPE__
 - ニュースの中身を推測で書かない。値動きの理由は、渡された報道に書かれているときだけ、
   報道として引く（「〜と伝えられています」）。書かれていなければ理由に触れない。
@@ -722,6 +728,45 @@ TRANSLATE_SYSTEM = """あなたはニュース見出しを日本語に翻訳し�
 - 出力は JSON だけ。前後に説明を付けません。"""
 
 
+NEWS_SELECT_SYSTEM = """あなたは長期・インデックス投資家向けに、その日の市場ニュース見出しを厳選します。
+- 見出しだけを読んで内容が伝わるものを選ぶ。「〜のポイント」「注目すべきN選」のように
+  中身を開かないと分からないリスト記事・後で読ませる系の見出しは選ばない。
+- 個別銘柄の推奨・値上がり銘柄紹介など、特定の銘柄に焦点を当てたものは選ばない。
+- 米国株（S&P500）に関わるマクロ経済・金融政策・米国市場全体の動きを優先する。
+  米国株への影響が見出しから読み取れない、他地域市場だけの話題は選ばない。
+- 誇張・扇動的な見出しは選ばない。実際にあったことだけを伝える見出しを選ぶ。
+- 基準を満たすものが無ければ、無理に件数をそろえなくてよい。
+- 出力は JSON だけ。前後に説明を付けない。"""
+
+
+def select_headlines(candidates, limit=5):
+    """候補見出しから、長期投資家に有益なものだけを選び直す（2026-09-26、本人指摘）。
+
+    キーワード一致（_is_market_news）だけでは、個別銘柄の推奨記事や中身の分からない
+    リスト記事、米国株に関係のない他地域市場ニュースまで拾ってしまうため、ここでLLMに
+    絞り込ませる。失敗時はキーワード一致の上位をそのまま使う（ニュース欄を空にしない）。
+    """
+    if not candidates:
+        return candidates, zero_usage()
+    lines = "\n".join(f"{i}: {c['text']}" for i, c in enumerate(candidates))
+    user = f"""次の見出しから、基準を満たすものを最大{limit}件、良い順に選んでください。
+
+{lines}
+
+出力は次の形の JSON のみ。
+{{"selected": [番号, ...]}}"""
+    text, usage = chat(system_common=NEWS_SELECT_SYSTEM, system_variable="",
+                       messages=[{"role": "user", "content": user}], max_tokens=300)
+    t = (text or "").strip()
+    try:
+        cand = t[t.index("{"):t.rindex("}") + 1]
+        idx = json.loads(cand).get("selected") or []
+        picked = [candidates[i] for i in idx if isinstance(i, int) and 0 <= i < len(candidates)]
+    except (ValueError, json.JSONDecodeError, TypeError, IndexError):
+        return candidates[:limit], usage
+    return (picked or candidates[:limit]), usage
+
+
 def translate_headlines(heads):
     """表示用に、英語の生見出しを日本語へ訳す。
 
@@ -883,6 +928,20 @@ def run_live(args):
         return
     ctx = prov.context(key)
 
+    # キーワード一致の候補から、長期投資家向けに有益なものだけへ絞り直す。
+    # 本文生成より前に差し替えることで、本文の理由付けにも絞り込み後の見出しを使う。
+    news_usage = None
+    news = ctx.get("news") or {}
+    if news.get("candidates"):
+        try:
+            selected, news_usage = select_headlines(news["candidates"])
+            if selected:
+                news["headlines"] = selected
+                news["headline"] = selected[0]["text"]
+        except Exception as e:
+            print(f"  ! ニュース見出しの選定に失敗しました（キーワード一致のみで表示します）: {e}",
+                  flush=True)
+
     print(f"対象日 : {key}（{ctx['phase']}／{ctx['return']*100:+.2f}%）")
     print(f"model  : {model_id()}")
     checks = [("重大", m) for m in validate(ctx)] + prov.check(ctx)
@@ -906,6 +965,8 @@ def run_live(args):
     system = build_system_common(kb, "day", fiction=False)
     print("日報を生成しています…", flush=True)
     blocks, usage = generate_report(ctx, kb, prov.previous(key), system)
+    if news_usage:
+        add_usage(usage, news_usage)
     headline = _headline_of(blocks)
 
     # 表示用に見出しを日本語へ。本文の理由付けは原文の英語見出しのままなので、

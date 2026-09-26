@@ -445,8 +445,15 @@ class LiveProvider(Provider):
             conn.close()
         return out
 
-    def _news(self, target, limit=5):
-        """市場に関わりそうな見出しだけを新しい順に。理由は断定せず材料として渡す。"""
+    def _news(self, target, limit=5, pool=20):
+        """市場に関わりそうな見出しだけを新しい順に。理由は断定せず材料として渡す。
+
+        headlines はキーワード一致の上位limit件（従来どおり）。candidates は
+        LLMでの絞り込み用に広めに持つプール（pool件）。キーワード一致だけでは
+        個別銘柄ネタや米国と無関係な他地域市場ニュースも拾ってしまうため、
+        呼び出し側（run_live）がcandidatesから選び直せるようにしている
+        （2026-09-26、本人指摘）。
+        """
         since = (date.fromisoformat(target) - timedelta(days=3)).isoformat()
         conn = self._conn()
         try:
@@ -456,14 +463,13 @@ class LiveProvider(Provider):
         finally:
             conn.close()
         picked = [r for r in rows if _is_market_news(r["headline"])]
-        picked = picked[:limit]
+        candidates = [{"text": r["headline"], "source": r["source"]} for r in picked[:pool]]
+        headlines = candidates[:limit]
         return {
-            "headline": picked[0]["headline"] if picked else "",
+            "headline": headlines[0]["text"] if headlines else "",
             "cause": "",  # 実データでは理由を作らない。見出しから読める範囲に留める
-            "headlines": [
-                {"text": r["headline"], "source": r["source"]}
-                for r in picked
-            ],
+            "headlines": headlines,
+            "candidates": candidates,
         }
 
     def _series_of(self, target, symbol=None, series=None):
@@ -796,9 +802,12 @@ class LiveProvider(Provider):
     def history(self, key, days=20):
         """チャート注記が使う直近の並び。取れないものは入れない（埋めない）。"""
         out = {}
-        for name, series in (("vix", "vix"), ("rates", "us_10y_yield"),
-                             ("fx", "usdjpy")):
-            v = self._daily("fred_data", "AND series=?", (series,), "value", key, days)
+        # 本文の _fx()/_rates()/_vix() と同じソース優先順位（Yahoo優先、無ければFRED）に揃える。
+        # fred_data 単独だと数日〜1週間遅れ、チャートの「今」が本文の数字と食い違っていた（2026-09-26）。
+        for name, symbol, series in (("vix", "^VIX", "vix"),
+                                     ("rates", "^TNX", "us_10y_yield"),
+                                     ("fx", "JPY=X", "usdjpy")):
+            v = [val for _, val in self._series_of(key, symbol, series)[-days:]]
             if v:
                 out[name] = v
         v = self._daily("fear_greed", "AND type='stock'", (), "value", key, days)
