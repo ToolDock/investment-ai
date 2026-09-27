@@ -188,13 +188,17 @@ show_daily_report(market["daily_report"], st.session_state.group,
 # 実験側もそれに合わせた。2026-09-23）
 show_news(market["news"].get("headlines") or [])
 
-# ── 対話AI（群3のみ）───────────────────────
+# ── 対話AI（群2・群3）───────────────────────
 # 本番（production_app/10_today.py）で鍛えた対話AIを、実験の月次データでそのまま再利用する。
 # utils.dialogue.reply() は report/portfolio/recent_days をただの辞書として受け取る
 # 作りにしてあるため、dialogue.py 自体は一切変更していない（実験・本番で1本にする、
 # という設計原則どおり）。会話ログは experiment_results.db 側に session_id・month
 # 区切りで保存する（本番は investment_ai.db に report_date区切りで保存している）。
-if st.session_state.group == 3:
+# 群2は研究計画上「非パーソナライズの汎用AI対話」が必須だが未実装だった抜けを、
+# 2026-09-27に発見して追加。群3との差はパーソナライズの有無だけにするため、
+# ポートフォリオ・行動履歴・過去の対話ログは群2には渡さない（overlayが無いのは
+# 元々の分岐のまま。市況データは全群共通の情報なのでそのまま渡す）。
+if st.session_state.group in (2, 3):
     st.markdown("---")
     st.markdown("#### 💬 今月の日報について聞く")
     st.caption("今月の日報・長期投資の知識・あなたの資産状況をもとに答えます。"
@@ -231,27 +235,30 @@ if st.session_state.group == 3:
                         _report_blocks = _report_blocks[:-1] + [overlay] + _report_blocks[-1:]
                     _report_for_ai = {"headline": _raw_report.get("headline", ""),
                                       "blocks": _report_blocks}
+                    _is_personalized = st.session_state.group == 3
                     # ポートフォリオは本番と違い自己申告ではなく、シミュレーターが計算した
                     # 実際の値をそのまま渡す（§20-1で「実際の資産状況を踏まえるほうが良い」
-                    # とした方針どおり、実験では既に正確な値を持っているのでそれを使う）
+                    # とした方針どおり、実験では既に正確な値を持っているのでそれを使う）。
+                    # 群2はパーソナライズ無し条件のため、資産状況・行動履歴・過去ログは渡さない
                     _pf_for_ai = {
                         "cash": state["cash"],
                         "invested_value": state["invest_value"],
                         "cost_basis": state["cost_basis"],
-                    }
+                    } if _is_personalized else None
                     _history = st.session_state[_log_key][:-1]   # 今回の発話は除く（今月ぶん）
-                    _recent_months = (load_recent_dialogue_months(_sid, month, n_months=3)
-                                     if _sid else [])
+                    _recent_months = ((load_recent_dialogue_months(_sid, month, n_months=3)
+                                      if _sid else []) if _is_personalized else [])
                     # 実際に選んだ行動（買い増し・売却・積立変更など）を、会話ログとは別に
                     # 明示的に渡す。st.session_state.history は前月までの決定が積み上がって
                     # いる（今月ぶんはまだ行動選択前）ので、直近3か月ぶんを拾えばよい。
                     # これが無いと、直近の追加投資にAIが気づけず無反応だったり、下落局面での
-                    # 買い増しを「上がったから買った」と取り違えたりする（2026-09-21発見）
+                    # 買い増しを「上がったから買った」と取り違えたりする（2026-09-21発見）。
+                    # 群2では_is_personalizedがFalseなのでNoneのまま渡る
                     _recent_actions = [
                         {"label": f"{h['month']}か月目", "phase": h.get("phase"),
                          "action": h.get("action")}
                         for h in st.session_state.history[-3:]
-                    ]
+                    ] if _is_personalized else None
                     try:
                         _answer, _usage = dialogue_reply(_history, _user_q, _report_for_ai,
                                                          _pf_for_ai, _recent_months, unit="month",
