@@ -35,81 +35,6 @@ if st.session_state.get("session_id") and st.session_state.get("resume_code"):
         st.switch_page("pages/02_simulation.py")
     st.divider()
 
-# ── 属性 ─────────────────────────────
-st.subheader("あなたについて")
-
-nickname = st.text_input(
-    "日報の中で呼びかける名前を入力してください",
-    max_chars=12,
-    placeholder="ニックネームで構いません",
-    help="実名である必要はありません。この名前は記録されず、画面上の表示にのみ使われます。",
-)
-
-invest_experience = st.radio(
-    "投資経験について教えてください",
-    INVEST_EXPERIENCE_OPTIONS,
-    index=None,
-)
-
-invest_years = st.radio(
-    "投資歴（投資をしていた期間の合計）はどのくらいですか",
-    INVEST_YEARS_OPTIONS,
-    index=None,
-)
-
-age = st.number_input("年齢", min_value=18, max_value=100, value=30, step=1)
-
-gender = st.radio(
-    "性別",
-    GENDER_OPTIONS,
-    index=None,
-    horizontal=True,
-)
-
-st.divider()
-
-# ── 金融リテラシー・自信度 ─────────────────
-st.subheader("金融・投資に関する質問")
-
-self_rank = st.radio(
-    "はじめに：ご自身の金融・投資の知識は、同年代と比べてどの程度だと思いますか",
-    SELF_RANK_OPTIONS,
-    index=None,
-)
-
-st.caption("以下の各問について、答えと「その答えにどのくらい自信があるか」を選んでください。")
-
-lit_answers = {}
-for i, item in enumerate(FIN_LITERACY, 1):
-    st.markdown(f"**Q{i}. {item['text']}**")
-    ans = st.radio(
-        "答え",
-        item["options"],
-        index=None,
-        key=f"lit_ans_{item['id']}",
-        label_visibility="collapsed",
-    )
-    conf = st.radio(
-        "この答えへの自信",
-        CONFIDENCE_OPTIONS,
-        index=None,
-        horizontal=True,
-        key=f"lit_conf_{item['id']}",
-    )
-    lit_answers[item["id"]] = {
-        "answer": ans,
-        "confidence": (CONFIDENCE_OPTIONS.index(conf) + 1) if conf else None,
-    }
-    st.write("")
-
-st.divider()
-
-# ── 初期設定 ─────────────────────────
-st.subheader("初期設定")
-
-st.write(f"初期資産は {INITIAL_CASH:,} 円、毎月の余剰資金は {MONTHLY_BUDGET:,} 円です。")
-
-
 def _parse_amount(raw, max_value):
     # 数値欄をあらかじめ全額投資で埋めてしまうと、何も考えずに送信した人の現金が
     # 実質0円で固定されてしまう（増し買いの選択肢が最初から失われる）。他の設問と
@@ -123,50 +48,127 @@ def _parse_amount(raw, max_value):
         return None
     return value
 
+# 選択肢を1つ押すたびに画面全体が再実行され、右上の読み込み表示と暗転が出ていた
+# （2026-09-30 指摘）。回答欄を st.form に入れ、送信ボタンを押すまで再実行しない
+with st.form("pre_survey", border=False):
+    # ── 属性 ─────────────────────────────
+    st.subheader("あなたについて")
 
-initial_invest_raw = st.text_input(
-    f"初期資産 {INITIAL_CASH:,} 円のうち、いくらを投資しますか？（円）",
-    placeholder=f"0〜{INITIAL_CASH:,} の範囲で半角数字を入力",
-    help="投資しなかった分は現金資産として保有し、あとで買い増しにも使えます。",
-)
+    nickname = st.text_input(
+        "日報の中で呼びかける名前を入力してください",
+        max_chars=12,
+        placeholder="ニックネームで構いません",
+        help="実名である必要はありません。この名前は記録されず、画面上の表示にのみ使われます。",
+    )
 
-monthly_invest_raw = st.text_input(
-    f"毎月の余剰資金 {MONTHLY_BUDGET:,} 円のうち、いくらを積立しますか？（円）",
-    placeholder=f"0〜{MONTHLY_BUDGET:,} の範囲で半角数字を入力",
-    help="積立しなかった分は毎月の現金資産として加算されます（あとから変更できます）。",
-)
+    invest_experience = st.radio(
+        "投資経験について教えてください",
+        INVEST_EXPERIENCE_OPTIONS,
+        index=None,
+    )
+
+    invest_years = st.radio(
+        "投資歴（投資をしていた期間の合計）はどのくらいですか",
+        INVEST_YEARS_OPTIONS,
+        index=None,
+    )
+
+    age = st.number_input("年齢", min_value=18, max_value=100, value=30, step=1)
+
+    gender = st.radio(
+        "性別",
+        GENDER_OPTIONS,
+        index=None,
+        horizontal=True,
+    )
+
+    st.divider()
+
+    # ── 金融リテラシー・自信度 ─────────────────
+    st.subheader("金融・投資に関する質問")
+
+    self_rank = st.radio(
+        "はじめに：ご自身の金融・投資の知識は、同年代と比べてどの程度だと思いますか",
+        SELF_RANK_OPTIONS,
+        index=None,
+    )
+
+    st.caption("以下の各問について、答えと「その答えにどのくらい自信があるか」を選んでください。")
+
+    lit_answers = {}
+    for i, item in enumerate(FIN_LITERACY, 1):
+        st.markdown(f"**Q{i}. {item['text']}**")
+        ans = st.radio(
+            "答え",
+            item["options"],
+            index=None,
+            key=f"lit_ans_{item['id']}",
+            label_visibility="collapsed",
+        )
+        conf = st.radio(
+            "この答えへの自信",
+            CONFIDENCE_OPTIONS,
+            index=None,
+            horizontal=True,
+            key=f"lit_conf_{item['id']}",
+        )
+        lit_answers[item["id"]] = {
+            "answer": ans,
+            "confidence": (CONFIDENCE_OPTIONS.index(conf) + 1) if conf else None,
+        }
+        st.write("")
+
+    st.divider()
+
+    # ── 初期設定 ─────────────────────────
+    st.subheader("初期設定")
+
+    st.write(f"初期資産は {INITIAL_CASH:,} 円、毎月の余剰資金は {MONTHLY_BUDGET:,} 円です。")
+
+    initial_invest_raw = st.text_input(
+        f"初期資産 {INITIAL_CASH:,} 円のうち、いくらを投資しますか？（円）",
+        placeholder=f"0〜{INITIAL_CASH:,} の範囲で半角数字を入力",
+        help="投資しなかった分は現金資産として保有し、あとで買い増しにも使えます。",
+    )
+
+    monthly_invest_raw = st.text_input(
+        f"毎月の余剰資金 {MONTHLY_BUDGET:,} 円のうち、いくらを積立しますか？（円）",
+        placeholder=f"0〜{MONTHLY_BUDGET:,} の範囲で半角数字を入力",
+        help="積立しなかった分は毎月の現金資産として加算されます（あとから変更できます）。",
+    )
+
+
+    st.divider()
+
+    submitted = st.form_submit_button("シミュレーション開始", width="stretch")
 
 initial_invest = _parse_amount(initial_invest_raw, INITIAL_CASH)
 monthly_invest = _parse_amount(monthly_invest_raw, MONTHLY_BUDGET)
 
-if initial_invest_raw and initial_invest is None:
-    st.warning(f"初期資産は0〜{INITIAL_CASH:,}円の整数で入力してください。")
-if monthly_invest_raw and monthly_invest is None:
-    st.warning(f"毎月の積立額は0〜{MONTHLY_BUDGET:,}円の整数で入力してください。")
+if submitted:
+    # フォームの中では押すたびの判定ができないので、送信時に未回答をまとめて示す
+    problems = []
+    if invest_experience is None:
+        problems.append("投資経験")
+    if invest_years is None:
+        problems.append("投資歴")
+    if gender is None:
+        problems.append("性別")
+    if self_rank is None:
+        problems.append("金融・投資の知識の自己評価")
+    for i, item in enumerate(FIN_LITERACY, 1):
+        v = lit_answers[item["id"]]
+        if v["answer"] is None or v["confidence"] is None:
+            problems.append(f"Q{i}（答えと自信の両方）")
+    if initial_invest is None:
+        problems.append(f"初期投資額（0〜{INITIAL_CASH:,}円の整数）")
+    if monthly_invest is None:
+        problems.append(f"毎月の積立額（0〜{MONTHLY_BUDGET:,}円の整数）")
+    if problems:
+        st.error("未回答、または入力に誤りがあります：" + "、".join(problems))
+        submitted = False
 
-if initial_invest is not None and monthly_invest is not None:
-    st.caption(
-        f"→ 初期投資 {initial_invest:,} 円／現金 {INITIAL_CASH - initial_invest:,} 円、"
-        f"毎月 積立 {monthly_invest:,} 円／現金 {MONTHLY_BUDGET - monthly_invest:,} 円"
-    )
-
-st.divider()
-
-# ── 回答完了チェック ─────────────────────
-missing = (
-    invest_experience is None
-    or invest_years is None
-    or gender is None
-    or self_rank is None
-    or any(v["answer"] is None or v["confidence"] is None for v in lit_answers.values())
-    or initial_invest is None
-    or monthly_invest is None
-)
-
-if missing:
-    st.info("すべての質問に回答すると、シミュレーションを開始できます。")
-
-if st.button("シミュレーション開始", width="stretch", disabled=missing):
+if submitted:
     result = score_literacy(lit_answers)
 
     st.session_state.session_id = str(uuid.uuid4())

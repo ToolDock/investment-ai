@@ -16,7 +16,12 @@ init_results_db()
 st.title("長期投資シミュレーション実験")
 
 # 進行中の実験があれば、appページに来ても再開番号と残り日数がすぐ分かるようにする
-status = get_progress_status(st.session_state.get("session_id"))
+# 選択肢を触るたびに通信しないよう、同じ session_id のあいだは結果を使い回す
+_sid = st.session_state.get("session_id")
+if st.session_state.get("_app_status_sid") != _sid:
+    st.session_state["_app_status"] = get_progress_status(_sid)
+    st.session_state["_app_status_sid"] = _sid
+status = st.session_state["_app_status"]
 if status:
     resume_code, remaining_days = status
     st.info(f"進行中の実験があります（再開番号: {resume_code} ／ 期限まで残り{remaining_days}日）")

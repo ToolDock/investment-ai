@@ -58,7 +58,18 @@ def get_connection():
     return conn
 
 
+# init_results_db() をこのプロセスで実行済みか。Streamlit は操作のたびにページを再実行し、
+# 各ページの先頭で init_results_db() が呼ばれる。Turso では CREATE TABLE が1文ごとに
+# 通信になるので、毎回走らせると選択肢を1つ押すたびに数往復ぶん待たされていた
+# （2026-09-30、事前アンケートで「選択肢を押すたびに読み込みが出る」と指摘）。
+# テーブルは一度作れば残るので、プロセスごとに1回でよい
+_results_db_ready = False
+
+
 def init_results_db():
+    global _results_db_ready
+    if _results_db_ready:
+        return
     conn = get_connection()
     cur = conn.cursor()
 
@@ -184,6 +195,7 @@ def init_results_db():
 
     conn.commit()
     conn.close()
+    _results_db_ready = True
 
 
 def save_post_survey(session_id, answers, texts):
