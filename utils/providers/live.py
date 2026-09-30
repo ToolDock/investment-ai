@@ -27,9 +27,10 @@ from .base import (ROOT, Provider, classify_phase, classify_situation,
 INDEX_LABEL = {
     "^GSPC": "S&P500", "^NDX": "NASDAQ", "GC=F": "GOLD",
     "BTC-USD": "BTC", "JPY=X": "ドル円", "^SOX": "SOX", "^NYFANG": "FANG+",
+    "CL=F": "OIL",
 }
 # 日報の「他の資産」に載せる順番。S&P500 は本文の主役なので別扱い
-OTHER_ORDER = ["^NDX", "^SOX", "JPY=X", "GC=F", "BTC-USD"]
+OTHER_ORDER = ["^NDX", "^SOX", "JPY=X", "GC=F", "CL=F", "BTC-USD"]
 
 # 市場と無関係な見出しを落とすための語。単純な部分一致だと
 # 「Downing Street」が dow に、「billion-dollar」が dollar に
@@ -540,6 +541,22 @@ class LiveProvider(Provider):
                         else round(ytd / (now - ytd) * 100, 2)),
         }
 
+    def relations(self, key):
+        """指標どうしの関係の変化のうち、今日報告するもの（図の元データ付き）。無ければ []。
+
+        context() と history() の両方から呼ばれるので、同じ日は一度だけ計算する。
+        データが足りない・計算に失敗したときは空にする（日報の生成は止めない）。
+        """
+        cache = self.__dict__.setdefault("_relations_cache", {})
+        if key not in cache:
+            try:
+                from utils import relations as R
+                cache[key] = R.detect(lambda sym, ser: self._series_of(key, sym, ser))
+            except Exception as e:
+                print(f"  ! 関係の変化の検知に失敗しました（触れずに進めます）: {e}", flush=True)
+                cache[key] = []
+        return cache[key]
+
     def _earnings(self, target):
         """法人企業利益（税引後、FRED CP、四半期）。前年同期比だけを持つ。
 
@@ -626,6 +643,8 @@ class LiveProvider(Provider):
         rates = self._rates(key, since)
         fx = self._fx(key, since)
         earnings = self._earnings(key)
+        from utils import relations as R
+        relations = R.strip_chart(self.relations(key))
         vix, vix_chg, vix_date = self._vix(key)
         fg_date = self._latest_date("fear_greed", "AND type='stock'", key)
         sec_date = self._sector_date(key)
@@ -651,6 +670,7 @@ class LiveProvider(Provider):
             "rates": rates,
             "fx": fx,
             "earnings": earnings,
+            "relations": relations,
             "window": {"start": window[0][0], "days": len(window), "label": label},
             "freshness": {
                 "price_gap": gap,
@@ -819,6 +839,12 @@ class LiveProvider(Provider):
             v = self._daily("market_daily", "AND symbol=?", (sym,), "close", key, days)
             if v:
                 out[name] = v
+        # 関係が変わった二つの指標の推移（図 v_relation 用）。無い日は入れない
+        rel = self.relations(key)
+        if rel:
+            r = rel[0]
+            out["relation"] = dict(r["chart"], label=r["label"], kind_ja=r["kind_ja"],
+                                   n_recent=r["n_recent"])
         s = self.series()
         idx = {d: i for i, (d, _) in enumerate(s)}
         # 指数の日足がまだ無いときは、FRED の終値で代用する

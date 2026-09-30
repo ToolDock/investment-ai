@@ -82,9 +82,14 @@ def _fires(seg, ctx):
         return bool(r) and abs(r.get("day_bp") or 0) >= t["day_bp_abs_min"]
 
     if sid in ("commodity", "crypto", "semis"):
-        sym = {"commodity": "GOLD", "crypto": "BTC", "semis": "SOX"}[sid]
-        v = _index_pct(ctx, sym)
-        return v is not None and abs(v) >= t["day_abs_min"]
+        # 実物資産は金と原油のどちらかが大きく動けば取り上げる
+        syms = {"commodity": ("GOLD", "OIL"), "crypto": ("BTC",), "semis": ("SOX",)}[sid]
+        vals = [_index_pct(ctx, s) for s in syms]
+        return any(v is not None and abs(v) >= t["day_abs_min"] for v in vals)
+
+    if sid == "relations":
+        # 指標どうしの関係の変化。検知は utils/relations.py（計算だけ）で、ctx["relations"] に入る
+        return bool(ctx.get("relations"))
 
     if sid == "news":
         news = ctx.get("news") or {}

@@ -552,6 +552,50 @@ def fig_rates_trend(history):
     return fig_trend(history.get("rates"), "米10年債利回り", suffix="%", digits=2)
 
 
+def fig_relation(history):
+    """関係が最近変わった二つの指標を、左右2軸で重ねて描く。
+
+    LiveProvider.history() の "relation"（utils/relations.py が用意した直近の推移）を使う。
+    二つの線の高さを比べる図ではなく、動く向きが揃っているか離れているかを見る図なので、
+    軸はそれぞれの目盛りのまま、直近 n_recent 営業日を薄く塗って『ここからの動き』を示す。
+    """
+    r = (history or {}).get("relation")
+    if not r or not r.get("dates"):
+        return None
+    a, b = r["a"], r["b"]
+    n = len(r["dates"])
+    xs = list(range(1, n + 1))
+    nr = min(r.get("n_recent", 20), n)
+
+    def hover(s):
+        d, u = s.get("digits", 2), s.get("unit", "")
+        head = "$" if u == "$" else ""
+        tail = "" if u == "$" else u
+        return f"{s['name']} {head}%{{y:.{d}f}}{tail}<extra></extra>"
+
+    fig = go.Figure()
+    fig.add_vrect(x0=n - nr + 0.5, x1=n + 0.5, fillcolor=REF, opacity=0.15, line_width=0,
+                  annotation_text=f"直近{nr}営業日", annotation_position="top left",
+                  annotation_font=dict(color=MUTED(), size=12))
+    fig.add_trace(go.Scatter(x=xs, y=a["values"], mode="lines", name=a["name"],
+                             line=dict(color=CAT[0], width=2), hovertemplate=hover(a)))
+    fig.add_trace(go.Scatter(x=xs, y=b["values"], mode="lines", name=b["name"], yaxis="y2",
+                             line=dict(color=CAT[1], width=2), hovertemplate=hover(b)))
+    ticks = list(range(1, n + 1, 10))
+    fig.update_xaxes(tickvals=ticks, ticktext=[r["dates"][i - 1][5:] for i in ticks],
+                     title_text=f"直近{n}営業日", title_font=dict(color=MUTED(), size=12))
+    fig.update_yaxes(title_text=f"{a['name']}（左軸）", ticksuffix=a.get("unit", "") if a.get("unit") != "$" else "",
+                     tickprefix="$" if a.get("unit") == "$" else "",
+                     title_font=dict(color=CAT[0], size=12))
+    fig.update_layout(
+        yaxis2=dict(title=dict(text=f"{b['name']}（右軸）", font=dict(color=CAT[1], size=12)),
+                    overlaying="y", side="right", showgrid=False,
+                    ticksuffix=b.get("unit", ""), tickfont=dict(color=MUTED())),
+        hovermode="x unified",
+        legend=dict(orientation="h", x=0, y=1.12, font=dict(color=MUTED(), size=12)))
+    return _base(fig, height=340, margin=dict(l=8, r=8, t=44, b=8), legend=True)
+
+
 BUILDERS = {
     "v_bear_markets": lambda hv, tl, mo, u, hist: fig_bear_markets(hv),
     "v_longterm_log": lambda hv, tl, mo, u, hist: fig_longterm_log(hv),
@@ -564,6 +608,7 @@ BUILDERS = {
     "v_sector_performance": lambda hv, tl, mo, u, hist: fig_sector_performance(tl, mo),
     "v_fx_trend": lambda hv, tl, mo, u, hist: fig_fx_trend(hist),
     "v_rates_trend": lambda hv, tl, mo, u, hist: fig_rates_trend(hist),
+    "v_relation": lambda hv, tl, mo, u, hist: fig_relation(hist),
 }
 
 NOTES = {
@@ -580,6 +625,8 @@ NOTES = {
     "v_sector_performance": "対象日のセクター別騰落率。指数はひとつの塊ではなく、業種ごとに強弱が入れ替わりながら全体の動きを作っている。",
     "v_fx_trend": "直近の実勢レート（Yahoo Finance）。為替は資産の中身（企業の数・稼ぐ力）を変えるものではなく、気にしなくてよい。",
     "v_rates_trend": "直近の米10年債利回り（FRED）。金利が上がると、将来の利益を今の価値に割り引く際の割引率が上がり、特に成長株が値段の付け替えで動きやすくなる。",
+    "v_relation": "見るのは線の高さではなく、動く向きが揃っているか離れているか。左右の軸は別々の目盛りで、灰色の帯が直近の期間。"
+                  "二つの関係は時期によって変わり、ここで見えている変化が今後も続くとは限らない（因果を示す図でもない）。",
 }
 
 TITLES = {
@@ -594,6 +641,7 @@ TITLES = {
     "v_sector_performance": "今日、どの業種が強くてどの業種が弱かったか",
     "v_fx_trend": "ドル円の直近の動き",
     "v_rates_trend": "米10年債利回りの直近の動き",
+    "v_relation": "最近、関係が変わって見える二つの指標",
 }
 
 
@@ -601,7 +649,7 @@ TITLES = {
 NEEDS_TIMELINE = {"v_drawdown", "v_index_path", "v_fear_greed", "v_sector_performance"}
 # LiveProvider.history() の直近n営業日の数値配列を使う図。実験（ScriptedProvider）には無いので、
 # 本番だけで描かれる（無ければ描かない＝取れなければ埋めないという既存原則のとおり）
-NEEDS_HISTORY = {"v_fx_trend", "v_rates_trend"}
+NEEDS_HISTORY = {"v_fx_trend", "v_rates_trend", "v_relation"}
 
 
 def build(chart_id, hv=None, timeline=None, month=None, unit="month", history=None):

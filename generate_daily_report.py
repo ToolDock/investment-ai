@@ -195,6 +195,12 @@ CHARTS = {
     "v_rates_trend": "直近の営業日の米10年債利回りの推移",
 }
 
+# 本番（日次）だけで使う図。実験のプロンプトは変えたくないので CHARTS には入れない
+LIVE_ONLY_CHARTS = {
+    "v_relation": "指標どうしの関係が最近変わったとき、その二つの直近の推移を左右2軸で並べた図。"
+                  "関係の変化を話題にした段落にだけ付ける",
+}
+
 
 # 語り口の切り口。同じ局面が続いても角度が変わるように月ごとに巡回させる
 ANGLES = [
@@ -282,6 +288,9 @@ def build_system_common(kb, unit="month", fiction=True):
     parts.append("\n\n# 指し示せる図")
     for cid, desc in CHARTS.items():
         parts.append(f"\n- {cid}：{desc}")
+    if unit == "day":
+        for cid, desc in LIVE_ONLY_CHARTS.items():
+            parts.append(f"\n- {cid}：{desc}")
     return "".join(parts)
 
 
@@ -333,11 +342,14 @@ def _retrieve_knowledge(kb, phase, month, situation=None):
 DAY_FIXED_CHARTS = {"v_index_path", "v_drawdown"}
 
 
-def _allowed_charts(phase, unit="month"):
+def _allowed_charts(phase, unit="month", relations=False):
     ids = CHART_BY_PHASE.get(phase, list(CHARTS))
     if unit == "day":
         ids = [cid for cid in ids if cid not in DAY_FIXED_CHARTS]
     lines = [f"- {cid}：{CHARTS[cid]}" for cid in ids]
+    # 関係の変化を検知した日だけ、その図を使えるようにする
+    if unit == "day" and relations:
+        lines += [f"- {cid}：{desc}" for cid, desc in LIVE_ONLY_CHARTS.items()]
     lines.append("これ以外の図は使わない。どれも噛み合わなければ chart は null にする。")
     return "\n".join(lines)
 
@@ -454,6 +466,32 @@ def _earnings_line(m):
             "この数字にだけ触れてよい。強い・弱いの評価はこの数字の大小からだけ言う。")
 
 
+def _relations_line(m):
+    """指標どうしの関係の変化（utils/relations.py が計算で検知済み）。変わった日だけ入る。
+
+    検知と数値はコードで決めてあるので、ここでは材料として渡すだけにする。
+    """
+    rel = m.get("relations")
+    if not rel:
+        return ""
+    r = rel[0]
+    try:
+        from utils import relations as _R
+        common = _R.load()["meta"].get("guide_common", "")
+    except Exception:
+        common = ""
+    return (f"\n- 指標どうしの関係の変化（計算で検知済み）: {r['label']}で{r['kind_ja']}\n"
+            f"  直近{r['n_recent']}営業日: {r['word_recent']}"
+            f"（同じ向きに動いた日 {r['same_recent']}/{r['n_recent']}日）"
+            f"／その前{r['n_base']}営業日: {r['word_base']}"
+            f"（同じ向きに動いた日 {r['same_base']}/{r['n_base']}日）\n"
+            f"  直近{r['n_recent']}営業日の動き: {r['a']['name']} {r['a']['move_text']}"
+            f"（いま{r['a']['level_text']}）、{r['b']['name']} {r['b']['move_text']}"
+            f"（いま{r['b']['level_text']}）\n"
+            f"  一般に言われる関係: {r['prior']}\n"
+            f"  書き方: {r['guide']}{r['hint']}{common}")
+
+
 def _window_line(m):
     w = m.get("window")
     if not w:
@@ -553,7 +591,7 @@ def build_user_prompt(m, kb, prev=None):
 - VIX: {vix_line}／Fear & Greed: {fg['value']}（{fg['classification']}）
 {sector_line}
 - 他の資産: {other_assets}
-- {_dd_label(m)}: {dd['current']:.1f}%（この期間に経験した最大は {dd['max_so_far']:.1f}%）{_window_line(m)}{_rates_line(m)}{_fx_line(m)}{_fund_line(m)}{_earnings_line(m)}
+- {_dd_label(m)}: {dd['current']:.1f}%（この期間に経験した最大は {dd['max_so_far']:.1f}%）{_window_line(m)}{_rates_line(m)}{_fx_line(m)}{_fund_line(m)}{_earnings_line(m)}{_relations_line(m)}
 {_news_section(m)}
 {_shown_episodes(dd['max_so_far']) if 'v_recent_drawdowns' in CHART_BY_PHASE.get(m['phase'], []) else ''}
 
@@ -565,7 +603,7 @@ def build_user_prompt(m, kb, prev=None):
 この角度から入ること。ただし無理に押し込まず、その{word[1:]}の数字と噛み合う形にする。
 
 # 本文で使ってよい図
-{_allowed_charts(m['phase'], m.get('unit', 'month'))}
+{_allowed_charts(m['phase'], m.get('unit', 'month'), bool(m.get('relations')))}
 
 {plan}
 出力は JSON のみ。本文を JSON の外に書かないこと。{prev_line}"""
@@ -600,7 +638,7 @@ def _parse(text):
             if not txt:
                 continue
             ch = b.get("chart")
-            blocks.append({"text": txt, "chart": ch if ch in CHARTS else None})
+            blocks.append({"text": txt, "chart": ch if (ch in CHARTS or ch in LIVE_ONLY_CHARTS) else None})
         if blocks:
             blocks[0]["headline"] = headline
             return blocks
@@ -609,7 +647,7 @@ def _parse(text):
     body = (d.get("body") or "").strip()
     if body:
         ch = d.get("chart")
-        return [{"text": p.strip(), "chart": (ch if ch in CHARTS else None) if i == 0 else None}
+        return [{"text": p.strip(), "chart": (ch if (ch in CHARTS or ch in LIVE_ONLY_CHARTS) else None) if i == 0 else None}
                 for i, p in enumerate(body.split("\n")) if p.strip()]
     return ([{"text": t, "chart": None}] if t else [])
 

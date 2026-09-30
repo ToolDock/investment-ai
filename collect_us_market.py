@@ -33,6 +33,7 @@ SYMBOLS = {
     "^NYFANG": {"label": "NYSE FANG+",     "digits": 2, "unit": "",   "change": "pct"},
     "JPY=X":   {"label": "ドル円",          "digits": 3, "unit": "円", "change": "pct"},
     "GC=F":    {"label": "ゴールド",         "digits": 2, "unit": "$", "change": "pct"},
+    "CL=F":    {"label": "原油（WTI）",       "digits": 2, "unit": "$", "change": "pct"},
     "^TNX":    {"label": "米国債10年利回り",  "digits": 3, "unit": "%", "change": "bp"},
     "BTC-USD": {"label": "BTC/USD",        "digits": 0, "unit": "$",  "change": "pct"},
     "^SOX":    {"label": "SOX指数",         "digits": 2, "unit": "",   "change": "pct"},
