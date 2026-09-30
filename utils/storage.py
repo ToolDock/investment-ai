@@ -19,7 +19,8 @@ _RESUME_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 # クラウドワークス報酬（2026-09-16、本人と合意）：参加料 + 利益に応じたボーナス。
 # 利益＝最終資産 − 投入した元本の総額（現金・投資の内訳によらず一定。現金は増えないので
 # 多く残すほど利益は目減りする＝この不利は意図した設計として受け入れる）。
-# 利益がプラスの月だけ、30,000円ごとに切り上げで1円ボーナス。マイナス・0なら参加料のみ。
+# 利益がプラスのときだけ、利益÷30,000円を四捨五入した額（円）をボーナスにする。マイナス・0なら参加料のみ。
+# （2026-09-30、倫理審査の事前相談資料の「小数点以下四捨五入」に合わせた。以前は切り上げだった）
 REWARD_BASE_FEE = 10
 REWARD_BONUS_DIVISOR = 30000
 
@@ -27,7 +28,8 @@ REWARD_BONUS_DIVISOR = 30000
 def compute_reward(final_asset, total_contributed):
     """クラウドワークス報酬額（円）を返す。profit（利益）もあわせて返す。"""
     profit = final_asset - total_contributed
-    bonus = math.ceil(profit / REWARD_BONUS_DIVISOR) if profit > 0 else 0
+    # 四捨五入は「0.5は切り上げ」で行う（組み込みのround()は偶数丸めで、0.5の扱いが意図と変わる）
+    bonus = math.floor(profit / REWARD_BONUS_DIVISOR + 0.5) if profit > 0 else 0
     return REWARD_BASE_FEE + bonus, profit
 
 

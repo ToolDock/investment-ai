@@ -71,7 +71,9 @@ def _scroll_to_top():
         }
         [0, 60, 200, 500, 900, 1500].forEach(t => setTimeout(toTop, t));
         </script>""",
-        height=0,
+        # st.iframe は 0 を受け付けない版がある（1.64で確認: StreamlitInvalidHeightError）。
+        # 月を進めた直後の再実行でこの例外が出ないよう、最小の1pxにしておく（2026-09-30）
+        height=1,
     )
 
 
@@ -115,7 +117,12 @@ if resume_code:
     with st.sidebar:
         st.caption("中断・再開用の番号")
         st.code(resume_code)
-        status = get_progress_status(st.session_state.get("session_id"))
+        # 期限の残り日数は1日単位でしか変わらないので、操作のたびにDBへ聞かず初回だけ取る
+        # （Tursoは通信が発生するため、毎回の問い合わせが読み込みの待ちになっていた。2026-09-30）
+        if "progress_status" not in st.session_state:
+            st.session_state.progress_status = get_progress_status(
+                st.session_state.get("session_id"))
+        status = st.session_state.progress_status
         remaining_note = f"（期限まで残り{status[1]}日）" if status else ""
         st.caption(f"途中で閉じても、開始日から1週間以内ならこの番号で再開できます。{remaining_note}")
 
@@ -177,8 +184,11 @@ if st.session_state.group == 3:
         st.session_state.get("overconfidence"), st.session_state.history, month,
         state={"invest_value": state["invest_value"], "pl_pct": state["pl_pct"]},
         asset_history=asset_history, timeline=timeline)
-    if "session_id" in st.session_state:
+    # 同じ月の再実行（チェックボックス操作など）のたびに書き込まず、月または枠が変わったときだけ書く
+    if ("session_id" in st.session_state
+            and st.session_state.get("_pers_saved") != (month, slot_id)):
         save_personalization(st.session_state.session_id, month, slot_id)
+        st.session_state["_pers_saved"] = (month, slot_id)
 
 show_daily_report(market["daily_report"], st.session_state.group,
                   timeline=timeline, month=month, overlay=overlay)
@@ -286,96 +296,105 @@ if st.session_state.get("simulation_done"):
     with st.expander("実験ログを見る"):
         st.dataframe(st.session_state.history)
 else:
-    # 毎月かならず行動を選ばせる。「何もしない」も明示的な選択として記録する
-    if is_event:
-        st.info("相場が大きく動いています。今回の行動を選んでください。")
+    # 行動選択・アンケート・「決定して次へ」を1つのフラグメントにまとめる。
+    # チェックボックスや金額入力を操作するたびにページ全体（チャート・市況・日報・対話欄）を
+    # 描き直していたのが、読み込みの待ちとして気になっていた（2026-09-30、本人の指摘）。
+    # フラグメントにすると、この中の操作ではここだけが再実行される。月を進める処理では
+    # st.rerun()（既定はアプリ全体）を呼ぶので、次の月の画面はこれまでどおり全体が更新される
+    @st.fragment
+    def _action_phase():
+        # 毎月かならず行動を選ばせる。「何もしない」も明示的な選択として記録する
+        if is_event:
+            st.info("相場が大きく動いています。今回の行動を選んでください。")
 
-    action = action_selector(
-        idx,
-        state["invest_value"],
-        state["cash"],
-        state["monthly_invest"],
-        MONTHLY_BUDGET,
-    )
-    engaged = bool(action["decision"])          # 「何もしない」以外を選んだか
-    answers = {}
+        action = action_selector(
+            idx,
+            state["invest_value"],
+            state["cash"],
+            state["monthly_invest"],
+            MONTHLY_BUDGET,
+        )
+        engaged = bool(action["decision"])          # 「何もしない」以外を選んだか
+        answers = {}
 
-    # 心理アンケートは相場変動月のみ（毎月聞くと疲労で答えが崩れる）
-    if is_event:
+        # 心理アンケートは相場変動月のみ（毎月聞くと疲労で答えが崩れる）
+        if is_event:
+            st.divider()
+            answers = show_questionnaire(QITEMS, key_suffix=str(idx))
+
         st.divider()
-        answers = show_questionnaire(QITEMS, key_suffix=str(idx))
 
-    st.divider()
+        # ── 次へ進むボタン ───────────────────────
+        q_done = all(v is not None for v in answers.values())
+        ready = action["valid"] and q_done
+        if action["error"]:
+            st.warning(action["error"])
+        if is_event and not q_done:
+            st.caption("アンケートにすべて回答すると先に進めます。")
+        proceed = st.button("決定して次へ", width="stretch", disabled=not ready)
 
-    # ── 次へ進むボタン ───────────────────────
-    q_done = all(v is not None for v in answers.values())
-    ready = action["valid"] and q_done
-    if action["error"]:
-        st.warning(action["error"])
-    if is_event and not q_done:
-        st.caption("アンケートにすべて回答すると先に進めます。")
-    proceed = st.button("決定して次へ", width="stretch", disabled=not ready)
+        if proceed:
+            if action["decision"]:
+                st.session_state.decisions[month] = action["decision"]
 
-    if proceed:
-        if action["decision"]:
-            st.session_state.decisions[month] = action["decision"]
-
-        st.session_state.history.append({
-            "month": month,
-            "phase": phase,
-            "is_event": is_event,
-            "engaged": engaged,
-            "action": action["label"] or "何もしない",
-            "total": state["total"],
-            "cash": state["cash"],
-            "investment": state["invest_value"],
-            "pl_pct": state["pl_pct"],
-            **answers,
-        })
-
-        if "session_id" in st.session_state:
-            save_response(
-                st.session_state.session_id,
-                month,
-                phase,
-                market["return"],
-                is_event,
-                engaged,
-                action,
-                state,
-                answers,
-            )
-
-        if idx < len(timeline) - 1:
-            st.session_state.month_idx += 1
-            st.session_state.scroll_top = True
+            st.session_state.history.append({
+                "month": month,
+                "phase": phase,
+                "is_event": is_event,
+                "engaged": engaged,
+                "action": action["label"] or "何もしない",
+                "total": state["total"],
+                "cash": state["cash"],
+                "investment": state["invest_value"],
+                "pl_pct": state["pl_pct"],
+                **answers,
+            })
 
             if "session_id" in st.session_state:
-                save_progress(st.session_state.session_id, {
-                    "nickname": st.session_state.get("nickname"),
-                    "age": st.session_state.get("age"),
-                    "overconfidence": st.session_state.get("overconfidence"),
-                    "initial_invest": initial_invest,
-                    "monthly_invest": initial_monthly,
-                    "group": st.session_state.group,
-                    "participant_no": st.session_state.get("participant_no"),
-                    "month_idx": st.session_state.month_idx,
-                    "decisions": st.session_state.decisions,
-                    "history": st.session_state.history,
-                })
+                save_response(
+                    st.session_state.session_id,
+                    month,
+                    phase,
+                    market["return"],
+                    is_event,
+                    engaged,
+                    action,
+                    state,
+                    answers,
+                )
 
-            st.rerun()
-        else:
-            final_history = sim.simulate(
-                timeline, st.session_state.decisions, initial_invest, initial_monthly
-            )
-            final_asset = final_history[-1]["total"]
-            if "session_id" in st.session_state:
-                # 元本総額は現金・投資の配分によらず一定（毎月の余剰資金は選択にかかわらず
-                # 全員に渡っているため）。報酬計算はここを基準にする
-                total_contributed = settings["initial_cash"] + MONTHLY_BUDGET * len(timeline)
-                finalize_participant(st.session_state.session_id, final_asset, total_contributed)
+            if idx < len(timeline) - 1:
+                st.session_state.month_idx += 1
+                st.session_state.scroll_top = True
 
-            st.session_state.final_asset = final_asset
-            st.session_state.simulation_done = True
-            st.rerun()
+                if "session_id" in st.session_state:
+                    save_progress(st.session_state.session_id, {
+                        "nickname": st.session_state.get("nickname"),
+                        "age": st.session_state.get("age"),
+                        "overconfidence": st.session_state.get("overconfidence"),
+                        "initial_invest": initial_invest,
+                        "monthly_invest": initial_monthly,
+                        "group": st.session_state.group,
+                        "participant_no": st.session_state.get("participant_no"),
+                        "month_idx": st.session_state.month_idx,
+                        "decisions": st.session_state.decisions,
+                        "history": st.session_state.history,
+                    })
+
+                st.rerun()
+            else:
+                final_history = sim.simulate(
+                    timeline, st.session_state.decisions, initial_invest, initial_monthly
+                )
+                final_asset = final_history[-1]["total"]
+                if "session_id" in st.session_state:
+                    # 元本総額は現金・投資の配分によらず一定（毎月の余剰資金は選択にかかわらず
+                    # 全員に渡っているため）。報酬計算はここを基準にする
+                    total_contributed = settings["initial_cash"] + MONTHLY_BUDGET * len(timeline)
+                    finalize_participant(st.session_state.session_id, final_asset, total_contributed)
+
+                st.session_state.final_asset = final_asset
+                st.session_state.simulation_done = True
+                st.rerun()
+
+    _action_phase()
