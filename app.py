@@ -18,7 +18,7 @@ st.title("長期投資シミュレーション実験")
 # 進行中の実験があれば、appページに来ても再開番号と残り日数がすぐ分かるようにする
 # 選択肢を触るたびに通信しないよう、同じ session_id のあいだは結果を使い回す
 _sid = st.session_state.get("session_id")
-if st.session_state.get("_app_status_sid") != _sid:
+if "_app_status" not in st.session_state or st.session_state.get("_app_status_sid") != _sid:
     st.session_state["_app_status"] = get_progress_status(_sid)
     st.session_state["_app_status_sid"] = _sid
 status = st.session_state["_app_status"]
@@ -28,12 +28,34 @@ if status:
 
 st.markdown("---")
 
-group = st.selectbox(
-    "実験群を選択してください",
-    ["群1（知識のみ）", "群2（AIあり）", "群3（パーソナライズ）"]
-)
+# 募集ページごとに URL の ?g=2 / ?g=3 で群を固定する（参加者に群の名前を見せない）。
+# 指定がないときだけ、従来どおり選択欄を出す（開発・確認用）
+_GROUP_LABELS = ["群1（知識のみ）", "群2（AIあり）", "群3（パーソナライズ）"]
+_g = st.query_params.get("g")
+if _g in ("1", "2", "3"):
+    group = _GROUP_LABELS[int(_g) - 1]
+else:
+    group = st.selectbox("実験群を選択してください", _GROUP_LABELS)
 
-if st.button("実験開始"):
+st.subheader("研究へのご協力のお願い")
+st.markdown(
+    """
+この実験は、長期投資を続けるときの情報の提供のしかたが、投資の判断にどう影響するかを調べる研究です。
+仮想の資金で、60か月分の積立投資をシミュレーションしていただきます（現実のお金は動きません）。
+
+**記録するもの**：年齢・性別・投資経験・金融知識に関する設問への回答、シミュレーション中の売買などの選択、
+アンケートへの回答、AIとの対話の内容。氏名・メールアドレス・住所など、個人を特定する情報は集めません。
+ニックネームは画面上の表示にのみ使い、記録しません。
+
+**データの扱い**：研究の目的にのみ使い、結果は統計的にまとめて発表します。個人が特定される形では公表しません。
+
+**参加について**：参加は任意です。途中でやめても不利益はありません。
+途中でやめたい場合は、画面を閉じてください（再開番号を使えば、開始から1週間は続きから再開できます）。
+"""
+)
+consented = st.checkbox("上記の内容を読み、同意して参加します")
+
+if st.button("実験開始", disabled=not consented):
 
     if "群1" in group:
         st.session_state.group = 1
