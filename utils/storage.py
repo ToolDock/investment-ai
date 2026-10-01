@@ -178,6 +178,17 @@ def init_results_db():
         )
     """)
 
+    # 同意の記録と、実験の完了（事後アンケート送信）の記録。participants にALTERをかけずに
+    # 済むよう別表にしてある（公開中のTursoの既存表を触らない）。2026-10-01
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS participant_status (
+            session_id      TEXT PRIMARY KEY,
+            consented_at    TEXT,
+            consent_version TEXT,
+            survey_done_at  TEXT
+        )
+    """)
+
     # 群3「提案AI対話」の会話ログ。本番（investment_ai.db の dialogue_log、report_date区切り）
     # と同じ役割を、実験では session_id・month区切りで持つ（1参加者が60か月を通しでプレイする
     # ため、区切りは日付ではなく月）。本番用の utils.dialogue.reply() をそのまま再利用できるよう、
@@ -499,3 +510,66 @@ def load_recent_dialogue_months(session_id, before_month, n_months=3):
     finally:
         conn.close()
     return out
+
+
+# 同意の説明文（app.py）を変えたら、この版の名前も変える。どの文面に同意したかを後から辿れるようにする
+CONSENT_VERSION = "2026-10-pilot-v1"
+
+
+def record_consent(session_id, consented_at=None):
+    """同意した日時を記録する。記録に失敗しても実験は止めない。"""
+    try:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO participant_status (session_id, consented_at, consent_version)
+               VALUES (?, ?, ?)
+               ON CONFLICT(session_id) DO UPDATE SET
+                   consented_at = excluded.consented_at,
+                   consent_version = excluded.consent_version""",
+            (session_id, consented_at or datetime.now().isoformat(), CONSENT_VERSION))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def mark_survey_done(session_id):
+    """事後アンケートの送信（＝実験の完了）を記録する。最初の1回の日時だけ残す。"""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO participant_status (session_id, survey_done_at) VALUES (?, ?)
+           ON CONFLICT(session_id) DO UPDATE SET
+               survey_done_at = COALESCE(participant_status.survey_done_at, excluded.survey_done_at)""",
+        (session_id, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+
+def get_completion_info(session_id):
+    """完了状況と結果をまとめて返す（完了画面と、完了済みの番号での再開の判定に使う）。
+
+    sim_done: シミュレーションを最後まで終えたか（participants.completed_at）
+    survey_done: 事後アンケートまで送信したか
+    見つからなければ None。
+    """
+    if not session_id:
+        return None
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT completed_at, final_asset, profit, reward_yen FROM participants WHERE session_id = ?",
+        (session_id,))
+    p = cur.fetchone()
+    cur.execute("SELECT survey_done_at FROM participant_status WHERE session_id = ?", (session_id,))
+    st_row = cur.fetchone()
+    cur.execute("SELECT resume_code FROM progress WHERE session_id = ?", (session_id,))
+    pr = cur.fetchone()
+    conn.close()
+    if not p:
+        return None
+    return {
+        "sim_done": p[0] is not None,
+        "survey_done": bool(st_row and st_row[0]),
+        "final_asset": p[1], "profit": p[2], "reward_yen": p[3],
+        "resume_code": pr[0] if pr else None,
+    }

@@ -1,7 +1,8 @@
 import uuid
 import streamlit as st
 
-from utils.storage import init_results_db, create_participant, save_fin_literacy, save_progress
+from utils.storage import (init_results_db, create_participant, save_fin_literacy, save_progress,
+                           record_consent)
 from utils.components.ui_scale import render_scale_control, inject_scale_css
 from utils.pre_survey import (
     GENDER_OPTIONS,
@@ -199,6 +200,7 @@ if submitted:
         int(monthly_invest),
     )
     st.session_state.participant_no = participant_no
+    record_consent(st.session_state.session_id, st.session_state.get("consented_at"))
 
     save_fin_literacy(participant_no, result["detail"])
 

@@ -1,6 +1,9 @@
+from datetime import datetime
+
 import streamlit as st
 
-from utils.storage import init_results_db, load_progress_by_code, get_progress_status
+from utils.storage import (init_results_db, load_progress_by_code, get_progress_status,
+                           get_completion_info)
 from utils.components.ui_scale import render_scale_control, inject_scale_css
 
 st.set_page_config(
@@ -64,6 +67,8 @@ if st.button("実験開始", disabled=not consented):
     else:
         st.session_state.group = 2
     st.session_state.turn = 0
+    # 同意した日時。参加者が登録される事前アンケートの送信時に、DBへ記録する
+    st.session_state.consented_at = datetime.now().isoformat()
 
     st.switch_page("pages/01_pre_questionnaire.py")
 
@@ -86,6 +91,14 @@ if st.button("再開する"):
         else:
             st.session_state.session_id = session_id
             st.session_state.resume_code = resume_input.strip().upper()
+            # すでに終えた番号は、プレイ画面ではなく完了画面へ（再プレイ・二重送信の防止）
+            done = get_completion_info(session_id)
+            if done and done["sim_done"]:
+                st.session_state.group = state.get("group", 1)
+                st.session_state.final_asset = done["final_asset"]
+                st.session_state.simulation_done = True
+                st.session_state.survey_done = done["survey_done"]
+                st.switch_page("pages/03_post_survey.py")
             st.session_state.nickname = state.get("nickname")
             st.session_state.age = state.get("age")
             st.session_state.overconfidence = state.get("overconfidence")
