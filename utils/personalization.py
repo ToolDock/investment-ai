@@ -184,6 +184,50 @@ def state_sentence(invest_value, pl_pct):
     return f"あなたの投資資産は{invest_value:,}円、取得原価に対して{pl_pct:+.2f}%です。"
 
 
+def behavior_counts(history):
+    """これまでの行動の通算。重複なく数える（売却・買い増し・それ以外）。"""
+    n_sell = sum(1 for h in history if _is_sell_action(h.get("action")))
+    n_buy = sum(1 for h in history if _is_buy_action(h.get("action")))
+    return {"months": len(history), "sell": n_sell, "buy": n_buy,
+            "other": len(history) - n_sell - n_buy}
+
+
+def behavior_summary_text(history):
+    """対話AI向けの通算の行動要約。直近数か月だけでは「ずっと売っていない」ことが伝わらない。"""
+    if not history:
+        return ""
+    c = behavior_counts(history)
+    parts = [f"開始から{c['months']}か月：売却{c['sell']}回、買い増し{c['buy']}回、"
+             f"それ以外（積立のまま・何もしない等）{c['other']}回。"]
+    if c["sell"] == 0:
+        parts.append("一度も売却していない（暴落局面を含めて、決めた積立を続けている）。")
+    else:
+        last_sell = max(h["month"] for h in history if _is_sell_action(h.get("action")))
+        parts.append(f"最後の売却は{last_sell}か月目。")
+    return "".join(parts)
+
+
+STREAK_MIN_MONTHS = 3
+STREAK_TEXTS = [
+    "ここまで{n}か月、一度も売らずに続けています。",
+    "開始から{n}か月、売却はゼロのままです。",
+    "{n}か月間、売らずに積み立てを続けられています。",
+]
+
+
+def streak_sentence(history, month):
+    """一度も売っていない人に、その事実をそのまま返す一文（層3：行動履歴の通算）。
+
+    直近1〜3か月の行動だけを見る枠（compute_slot）では、「ずっと売っていない」ことは
+    表に出ない（2026-10-01、60か月通しプレイで本人が指摘）。売却が一度でもあれば出さない。
+    """
+    if len(history) < STREAK_MIN_MONTHS:
+        return None
+    if behavior_counts(history)["sell"] > 0:
+        return None
+    return STREAK_TEXTS[month % len(STREAK_TEXTS)].format(n=len(history))
+
+
 def _recent_dip_depth(timeline, month, tol):
     """直近、最高値（drawdown が tol 以上）だった月からこの月の前月までの、最深の下落幅。
 
@@ -265,6 +309,9 @@ def build_overlay_block(overconfidence, history, month, state=None, kb=None,
     parts = []
     if state is not None:
         parts.append(state_sentence(state["invest_value"], state["pl_pct"]))
+    streak = streak_sentence(history, month)
+    if streak:
+        parts.append(streak)
     milestone = milestone_sentence(asset_history, timeline, month, kb)
     if milestone:
         parts.append(milestone)

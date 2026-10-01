@@ -176,10 +176,24 @@ else:
                                           value=pf.get("invested_value") or 0)
             cost_in = st.number_input("取得原価・積立累計額（円）", min_value=0, step=1000,
                                       value=pf.get("cost_basis") or 0)
+            units_in = st.number_input("保有口数（口）", min_value=0, step=1000,
+                                       value=pf.get("units") or 0,
+                                       help="証券口座に表示される保有口数。基準価額は1万口あたりの値段です")
             if st.form_submit_button("更新"):
                 portfolio_store.save_portfolio(cash_in, invested_in, cost_in)
+                portfolio_store.save_units(int(units_in))
                 st.success("更新しました")
                 st.rerun()
+        _fund_now = ctx.get("fund") or {}
+        _nav = _fund_now.get("nav")
+        if pf.get("units"):
+            _line = f"保有口数 {pf['units']:,} 口"
+            if pf.get("cost_basis"):
+                _line += f"　／　平均取得単価 {pf['cost_basis'] / pf['units'] * 10000:,.0f} 円（1万口あたり）"
+            if _nav:
+                _line += (f"　／　基準価額 {_nav:,.0f} 円（{_fund_now.get('date', '')}）"
+                          f"　／　口数×基準価額 {pf['units'] * _nav / 10000:,.0f} 円")
+            st.caption(_line)
         if pf.get("updated_at"):
             st.caption(f"最終更新：{pf['updated_at']}")
         else:
@@ -229,6 +243,8 @@ if _user_q:
                 _report_for_ai = {"headline": rep["headline"], "blocks": rep["blocks"]}
                 # デモ表示では個人のポートフォリオ・直近の会話を対話AIに渡さない
                 _pf_now = None if DEMO_MODE else portfolio_store.get_portfolio()
+                if _pf_now and _pf_now.get("units") and (ctx.get("fund") or {}).get("nav"):
+                    _pf_now["nav"] = ctx["fund"]["nav"]
                 _history = st.session_state[_log_key][:-1]   # 今回の発話は除く（今日ぶん）
                 _recent_days = None if DEMO_MODE else portfolio_store.load_recent_days(
                     rep["date"], n_days=5)

@@ -113,7 +113,11 @@ __SCOPE__
 __PERIOD_RULE__
 - 局面ラベルは値動きの向きを表すだけで、いま最高値の近くにいることを意味しない。
   与えられた「最高値からの下落幅」と矛盾することを書かない。下落幅が -1.0% より深い__PERIOD__に、
-  「高値圏」「最高値圏」「史上最高値」と書いてはいけない。回復の途中なら、途中であると書く。
+  「高値圏」「最高値圏」「史上最高値」「年初来高値」と書いてはいけない（見出しも同じ）。
+  回復の途中なら、途中であると書く。
+- 上昇した__PERIOD__でも、最高値からの下落幅が -10% より深いあいだは、「順調に回復」「順調に戻って
+  いる」「好調」と言い切らない。「戻しつつあるが、最高値からはまだ〜%下」のように、下落幅に見合った
+  言い方にする。戻したことを理由に「買い増したくなる」と煽る書き方もしない。
 
 # 予測しない
 相場の先行きを予測しない。それどころか、予測に耳を傾けすぎないという姿勢自体を、折に触れて示す。
@@ -342,8 +346,18 @@ def _retrieve_knowledge(kb, phase, month, situation=None):
 DAY_FIXED_CHARTS = {"v_index_path", "v_drawdown"}
 
 
-def _allowed_charts(phase, unit="month", relations=False):
+# 下落の図は、いま最高値の近くにいると線が描かれず、空の図になる。この浅さ以下では使わせない
+SHALLOW_DD = -1.5
+DD_CHARTS = {"v_recent_drawdowns", "v_drawdown"}
+
+
+def _allowed_charts(phase, unit="month", relations=False, dd_current=None):
     ids = CHART_BY_PHASE.get(phase, list(CHARTS))
+    if unit == "month":
+        # 実験の世界には為替・金利のデータがない（図が空になる）
+        ids = [cid for cid in ids if cid not in ("v_fx_trend", "v_rates_trend")]
+    if dd_current is not None and dd_current > SHALLOW_DD:
+        ids = [cid for cid in ids if cid not in DD_CHARTS]
     if unit == "day":
         ids = [cid for cid in ids if cid not in DAY_FIXED_CHARTS]
     lines = [f"- {cid}：{CHARTS[cid]}" for cid in ids]
@@ -507,31 +521,34 @@ def _dd_label(m):
     return f"{w['label']}の最高値からの下落幅" if w else "最高値からの下落幅"
 
 
+_MONTH_WORDS = (("今日", "今月"), ("上がった日", "上がった月"), ("下げた日", "下げた月"),
+                ("動いた日", "動いた月"), ("その日", "その月"))
+
+
+def _unitize(text, unit):
+    """話題の指示文は本番（日次）の言い回しで書いてあるので、月次では言い換える。"""
+    if unit != "month":
+        return text
+    for a, b in _MONTH_WORDS:
+        text = text.replace(a, b)
+    return text
+
+
 def structure_section(m, is_event, word):
     """本文の組み立て方。
 
-    実験（月次）は検証済みの4部構成のまま。
-    本番（日次）は、その日に実際に動いたものを話題として並べる形にする。
+    実験（月次）も本番（日次）と同じく、その期間に実際に動いたものを話題として並べる形にする
+    （2026-10-01、通しプレイで「本番と型をそろえてほしい」との指摘を受けて、従来の4部構成から変更）。
     ロールモデルが1本で8〜9の話題を扱うのに倣ったもので、
     為替・金利・報道のように「今日それが起きたから触れる」項目を拾えるようにする。
     """
-    if m.get("unit", "month") != "day":
-        length = "400〜500字" if is_event else "250〜350字"
-        return f"""# 本文の構成（見出しは付けず、地の文で）
-1. {word}の事実（数字を伴う）
-2. それがなぜ怖く見えるのか
-3. 長期の文脈での読み替え（ここで図を指す）
-4. 結論：相場を理由に売る必要はない
-
-この1〜4を、2〜4個の blocks に分けて書く。全体で{length}。
-図はそれを語っている段落に付ける。
-与えられていない数値・銘柄・出来事を持ち出さない。"""
-
     segs = select_segments(m)
     n = len(segs)
     per_lo, per_hi = PER_BLOCK_EVENT if is_event else PER_BLOCK
     lo, hi = length_range(n, is_event)
-    topics = "\n".join(f"{i}. {s['title']}：{s['guide']}"
+    unit = m.get("unit", "month")
+    topics = "\n".join(f"{i}. {_unitize(s['title'], unit)}："
+                        f"{_unitize(s.get('guide_month') if unit == 'month' and s.get('guide_month') else s['guide'], unit)}"
                         for i, s in enumerate(segs, 1))
     return f"""# {word}取り上げる話題（この順に、1話題ずつ1段落。見出しは付けず地の文で）
 {topics}
@@ -593,7 +610,7 @@ def build_user_prompt(m, kb, prev=None):
 - 他の資産: {other_assets}
 - {_dd_label(m)}: {dd['current']:.1f}%（この期間に経験した最大は {dd['max_so_far']:.1f}%）{_window_line(m)}{_rates_line(m)}{_fx_line(m)}{_fund_line(m)}{_earnings_line(m)}{_relations_line(m)}
 {_news_section(m)}
-{_shown_episodes(dd['max_so_far']) if 'v_recent_drawdowns' in CHART_BY_PHASE.get(m['phase'], []) else ''}
+{_shown_episodes(dd['max_so_far']) if ('v_recent_drawdowns' in CHART_BY_PHASE.get(m['phase'], []) and dd['current'] <= SHALLOW_DD) else ''}
 
 # この局面で使える知識
 {_retrieve_knowledge(kb, m['phase'], m['month'], m.get('situation'))}
@@ -603,7 +620,7 @@ def build_user_prompt(m, kb, prev=None):
 この角度から入ること。ただし無理に押し込まず、その{word[1:]}の数字と噛み合う形にする。
 
 # 本文で使ってよい図
-{_allowed_charts(m['phase'], m.get('unit', 'month'), bool(m.get('relations')))}
+{_allowed_charts(m['phase'], m.get('unit', 'month'), bool(m.get('relations')), dd['current'])}
 
 {plan}
 出力は JSON のみ。本文を JSON の外に書かないこと。{prev_line}"""

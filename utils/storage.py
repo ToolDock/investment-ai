@@ -193,6 +193,22 @@ def init_results_db():
         )
     """)
 
+    # 対話AIの1回ごとの利用量（トークン数と概算費用）。費用の実測用（2026-10-01）。
+    # dialogue_log を変更せず別表にしたのは、公開中のTursoの既存表にALTERをかけずに済ませるため
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS llm_usage (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id  TEXT,
+            month       INTEGER,
+            input       INTEGER,
+            output      INTEGER,
+            cache_write INTEGER,
+            cache_read  INTEGER,
+            cost_usd    REAL,
+            created_at  TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
     _results_db_ready = True
@@ -422,6 +438,24 @@ def save_dialogue_turn(session_id, month, role, content):
     )
     conn.commit()
     conn.close()
+
+
+def save_llm_usage(session_id, month, usage):
+    """対話AI1回ぶんの利用量を記録する。記録に失敗しても対話は止めない。"""
+    try:
+        u = usage or {}
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO llm_usage (session_id, month, input, output, cache_write, "
+            "cache_read, cost_usd, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, month, u.get("input", 0), u.get("output", 0),
+             u.get("cache_write", 0), u.get("cache_read", 0), u.get("cost_usd", 0.0),
+             datetime.now().isoformat(timespec="seconds"))
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def load_dialogue_log(session_id, month):

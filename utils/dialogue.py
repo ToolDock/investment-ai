@@ -36,6 +36,14 @@ SYSTEM_INSTRUCTIONS = """あなたは、長期・分散・低コストのイン�
   分かっていれば現金残高など実際の数字を踏まえて、その判断を後押しする形で答える。ただし、
   相場の動きや感情に判断基準が引っ張られている兆候（上がったから追いかける、焦って倍賭けする
   など）には注意を促してよい。
+- 本日（今月）の日報が渡されている。質問が日報の内容に関わるときは、日報に書かれた数字・表現と
+  食い違わないように答え、日報の該当箇所を踏まえて話す（日報で言っていないことを新たに言わない）。
+- 「これまでの行動の通算」が渡されている場合は、それを踏まえる。とくに一度も売却していないなら、
+  その継続を事実として認めたうえで答える（毎回持ち上げる必要はない。質問に関係するときに触れる）。
+  通算の記録に無い行動を、あったかのように話さない。
+- 保有口数・基準価額・平均取得単価が渡されている場合、積立は安いときほど同じ金額で多くの口数を
+  買えること、平均取得単価が基準価額を下回っていれば含み益になる、という仕組みで説明してよい。
+  渡されていない数字は作らない。
 - ユーザーが実際に取った行動（買い増し・売却・積立変更など）が「直近の行動」として渡されて
   いる場合は、それを会話の推測より優先する。とくに、その行動が下落局面と上昇局面のどちらで
   起きたかを取り違えない。"""
@@ -157,6 +165,14 @@ def _portfolio_digest(portfolio):
     if invested is not None and cost:
         pl = (invested / cost - 1) * 100
         lines.append(f"含み損益：{pl:+.2f}%")
+    units = portfolio.get("units")
+    nav = portfolio.get("nav")
+    if units:
+        lines.append(f"保有口数：{units:,}口")
+        if nav:
+            lines.append(f"基準価額：{nav:,.0f}円（1万口あたり）")
+        if cost:
+            lines.append(f"平均取得単価：{cost / units * 10000:,.0f}円（1万口あたり）")
     if portfolio.get("updated_at"):
         lines.append(f"（{portfolio['updated_at']} 時点の自己申告。実際とずれている可能性がある）")
     return "\n".join(lines) if lines else "（ユーザーはまだ自分の資産状況を登録していません。一般論で答えてよい）"
@@ -217,7 +233,7 @@ UNIT_LABELS = {
 
 
 def system_variable(report, portfolio, recent_days=None, unit="day", recent_actions=None,
-                    market_context=None):
+                    market_context=None, behavior_summary=None):
     labels = UNIT_LABELS.get(unit, UNIT_LABELS["day"])
     return (f"## {labels['period']}の日報\n" + _report_digest(report, labels["period"])
             + f"\n\n## {labels['period']}の市況データ（画面のダッシュボードと同じ数値）\n"
@@ -225,6 +241,8 @@ def system_variable(report, portfolio, recent_days=None, unit="day", recent_acti
             + "\n\n## ユーザーの資産状況\n" + _portfolio_digest(portfolio)
             + "\n\n## 直近の行動（実際に選んだ操作。会話からの推測より必ずこちらを優先する）\n"
             + _action_digest(recent_actions)
+            + ("\n\n## これまでの行動の通算（開始からの全期間）\n" + behavior_summary
+               if behavior_summary else "")
             + f"\n\n## これまでの対話（{labels['recent']}、参考程度に）\n" + _memory_digest(recent_days)
             + "\n\n※「これまでの対話」は、自然なときだけ踏まえればよい。毎回律儀に触れなくてよい。"
               f"内容が{labels['current_ref']}の情報と食い違う場合（資産状況など）は、"
@@ -233,7 +251,7 @@ def system_variable(report, portfolio, recent_days=None, unit="day", recent_acti
 
 
 def reply(history, user_input, report, portfolio, recent_days=None, unit="day", recent_actions=None,
-         market_context=None):
+         market_context=None, behavior_summary=None):
     """history: [{"role": "user"/"assistant", "content": str}, ...]（今回の発話は含まない、当日/当月ぶん）
     recent_days: 対象より前の対話ログ（utils.portfolio.load_recent_days() や
                 utils.storage.load_recent_dialogue_months() の戻り値、形は同じ）。
@@ -248,5 +266,6 @@ def reply(history, user_input, report, portfolio, recent_days=None, unit="day", 
     """
     messages = list(history) + [{"role": "user", "content": user_input}]
     return chat(system_common(),
-               system_variable(report, portfolio, recent_days, unit, recent_actions, market_context),
+               system_variable(report, portfolio, recent_days, unit, recent_actions, market_context,
+                               behavior_summary),
                messages, max_tokens=MAX_TOKENS)

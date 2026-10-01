@@ -24,7 +24,7 @@ CLOSINGS = {"month": "相場は相場に任せて、今月も Just Keep Buying�
 NG_PHRASES = ["売ってください", "売るべきです", "買ってください", "買うべきです",
               "買い増しましょう", "買い増すべき", "一切売らない", "絶対に売らない",
               "買わないでください", "売却をお勧め", "購入をお勧め"]
-HIGH_WORDS = ["高値圏", "最高値圏", "史上最高値"]
+HIGH_WORDS = ["高値圏", "最高値圏", "史上最高値", "年初来高値"]
 
 # 値動きの理由を語るときの言い回しと、出典を示す言い回し
 CAUSE_WORDS = ["を受けて", "が原因", "を背景に", "によって", "が意識され",
@@ -69,14 +69,10 @@ def check(m, hv, prev_texts, unit="month"):
 
     # 構造。実験は2〜4段落、本番はその日に載せるべき話題の数と一致しているはず
     is_event = m["phase"] in EVENT_PHASES
-    if unit == "day":
-        want = len(select_segments(m))
-        if len(blocks) != want:
-            warn.append(f"段落数が{len(blocks)}（話題は{want}件）")
-    else:
-        want = None
-        if not 2 <= len(blocks) <= 4:
-            warn.append(f"段落数が{len(blocks)}")
+    # 実験（月次）も本番と同じく、話題の数から段落数と字数の目安を決める
+    want = len(select_segments(m))
+    if len(blocks) != want:
+        warn.append(f"段落数が{len(blocks)}（話題は{want}件）")
     charts = [b["chart"] for b in blocks if b.get("chart")]
     if not 1 <= len(charts) <= 2:
         warn.append(f"図が{len(charts)}枚")
@@ -106,6 +102,23 @@ def check(m, hv, prev_texts, unit="month"):
             if hit_found:
                 ng.append(f"下落幅{dd['current']:.1f}%なのに「{w}」")
                 break
+    # 見出しも同じ基準で見る（本文だけの点検では「年初来高値圏」の見出しを見逃した）
+    if dd["current"] < -3.0:
+        for w in HIGH_WORDS:
+            if w in hl and not re.search(NEG, hl):
+                ng.append(f"見出しが下落幅{dd['current']:.1f}%と矛盾:「{w}」")
+                break
+    # 回復を言い切る表現は、深い下落のあいだは使わない
+    if dd["current"] < -10.0:
+        for w in ["順調に回復", "順調に戻", "順調に推移", "好調"]:
+            if w in text and not re.search(NEG, text[text.index(w):text.index(w) + 16]):
+                ng.append(f"下落幅{dd['current']:.1f}%なのに「{w}」")
+                break
+        if re.search(r"買い増し?(した|そう)くなる|買い増そう", text):
+            warn.append("戻りを理由に買い増しを想起させている")
+    # 最高値の近くでは、下落の図が空になる
+    if dd["current"] > -1.5 and any(c in ("v_recent_drawdowns", "v_drawdown") for c in charts):
+        ng.append(f"下落幅{dd['current']:.1f}%（最高値付近）なのに下落の図を使っている")
     if "一日の値動き" in text or "1日の値動き" in text:
         warn.append("日次の値動きに言及している")
 

@@ -57,7 +57,9 @@ def _index_pct(ctx, symbol):
 
 def _fires(seg, ctx):
     """その日にこの話題を載せるかどうか。数値が取れていなければ載せない。"""
-    t = seg.get("trigger") or {}
+    # 月次（実験）は値動きが日次より大きいので、専用の閾値があればそちらを使う
+    t = ((seg.get("trigger_month") if ctx.get("unit") == "month" else None)
+         or seg.get("trigger") or {})
     sid = seg["id"]
     mc = ctx["market_context"]
 
@@ -105,10 +107,24 @@ def _fires(seg, ctx):
     return False
 
 
+def _segments_meta():
+    with open(SEGMENTS_PATH, encoding="utf-8") as f:
+        return json.load(f).get("meta", {})
+
+
 def select_segments(ctx, segments=None):
     """その日に載せる話題を順番どおりに返す。always と、実際に動いたものだけ。"""
-    return [s for s in (segments or load_segments())
-            if s.get("always") or _fires(s, ctx)]
+    chosen = [s for s in (segments or load_segments())
+              if s.get("always") or _fires(s, ctx)]
+    # 月次（実験）は1回で読む量を抑えるため、話題が多すぎる月は優先度の低いものから外す
+    if ctx.get("unit") == "month":
+        meta = _segments_meta()
+        limit = meta.get("month_max_segments", 6)
+        for sid in meta.get("month_drop_order", []):
+            if len(chosen) <= limit:
+                break
+            chosen = [s for s in chosen if s["id"] != sid]
+    return chosen
 
 
 def classify_phase(ret, dd_current, trend, unit="month", rules=None):

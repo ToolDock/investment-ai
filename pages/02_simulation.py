@@ -4,9 +4,9 @@ from utils.load_scenario import load_scenario
 from utils.simulator import Simulator
 from utils.storage import (
     save_response, finalize_participant, save_personalization, save_progress, get_progress_status,
-    save_dialogue_turn, load_dialogue_log, load_recent_dialogue_months,
+    save_dialogue_turn, load_dialogue_log, load_recent_dialogue_months, save_llm_usage,
 )
-from utils.personalization import build_overlay_block
+from utils.personalization import build_overlay_block, behavior_summary_text
 from utils.dialogue import reply as dialogue_reply
 from utils.components.chart import draw_chart, draw_market_chart
 from utils.components.market_dashboard import show_market_dashboard
@@ -158,6 +158,15 @@ c3.markdown(
     unsafe_allow_html=True,
 )
 
+# 保有口数と基準価額。開始時を1口=1円（基準価額10,000円／1万口）とした実際の投資信託の見え方に揃える。
+# 口数が見えないと、安値のときに多く買えた分が利益になる仕組みが伝わらない（2026-10-01、通しプレイで指摘）
+_units = state["units"]
+if _units > 0:
+    _nav = state["price"] * 10000
+    _avg = state["cost_basis"] / _units * 10000
+    st.caption(f"保有口数 {round(_units):,} 口　／　基準価額 {_nav:,.0f} 円（1万口あたり）"
+               f"　／　平均取得単価 {_avg:,.0f} 円（1万口あたり）")
+
 draw_chart(asset_history, month,
            initial_cash=settings["initial_cash"], monthly_budget=MONTHLY_BUDGET)
 
@@ -254,6 +263,8 @@ if st.session_state.group in (2, 3):
                         "cash": state["cash"],
                         "invested_value": state["invest_value"],
                         "cost_basis": state["cost_basis"],
+                        "units": round(state["units"]),
+                        "nav": state["price"] * 10000,
                     } if _is_personalized else None
                     _history = st.session_state[_log_key][:-1]   # 今回の発話は除く（今月ぶん）
                     _recent_months = ((load_recent_dialogue_months(_sid, month, n_months=3)
@@ -273,7 +284,12 @@ if st.session_state.group in (2, 3):
                         _answer, _usage = dialogue_reply(_history, _user_q, _report_for_ai,
                                                          _pf_for_ai, _recent_months, unit="month",
                                                          recent_actions=_recent_actions,
-                                                         market_context=market.get("market_context"))
+                                                         market_context=market.get("market_context"),
+                                                         behavior_summary=(behavior_summary_text(
+                                                             st.session_state.history)
+                                                             if _is_personalized else None))
+                        if _sid:
+                            save_llm_usage(_sid, month, _usage)
                     except Exception as e:
                         _answer = f"すみません、うまく答えられませんでした（{e}）。少し時間をおいて試してください。"
                 st.write(_answer)

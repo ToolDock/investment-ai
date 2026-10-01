@@ -55,6 +55,14 @@ def init_store():
             updated_at TEXT
         )
     """)
+    # 保有口数は後から足した項目。稼働中のテーブルにALTERをかけずに済むよう別テーブルにしてある
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS my_portfolio_units (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            units INTEGER,
+            updated_at TEXT
+        )
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS dialogue_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,10 +84,34 @@ def get_portfolio():
             "FROM my_portfolio WHERE id = 1").fetchone()
     finally:
         conn.close()
-    if not row:
+    units = get_units()
+    if not row and not units:
         return None
-    return {"cash": row[0], "invested_value": row[1], "cost_basis": row[2],
-            "updated_at": row[3]}
+    pf = ({"cash": row[0], "invested_value": row[1], "cost_basis": row[2],
+           "updated_at": row[3]} if row else {})
+    if units:
+        pf["units"] = units
+    return pf
+
+
+def get_units():
+    """保有口数（口）。未登録なら None。"""
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT units FROM my_portfolio_units WHERE id = 1").fetchone()
+    finally:
+        conn.close()
+    return row[0] if row and row[0] else None
+
+
+def save_units(units):
+    conn = _conn()
+    conn.execute("""
+        INSERT INTO my_portfolio_units (id, units, updated_at) VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET units=excluded.units, updated_at=excluded.updated_at
+    """, (units, datetime.now().isoformat(timespec="seconds")))
+    conn.commit()
+    conn.close()
 
 
 def save_portfolio(cash, invested_value, cost_basis):
