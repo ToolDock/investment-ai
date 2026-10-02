@@ -521,7 +521,7 @@ def load_recent_dialogue_months(session_id, before_month, n_months=3):
 
 
 # 同意の説明文（app.py）を変えたら、この版の名前も変える。どの文面に同意したかを後から辿れるようにする
-CONSENT_VERSION = "2026-10-pilot-v1"
+CONSENT_VERSION = "2026-10-pilot-v2"
 
 
 def record_consent(session_id, consented_at=None):
