@@ -207,8 +207,8 @@ def check(m, hv, prev_texts, unit="month"):
     # 長さ。本番は話題の数から決まる目安に対して見る（下振れは薄さの兆候）
     n = len(text)
     if want:
-        lo, hi = length_range(want, is_event)
-        lo, hi = int(lo * 0.8), int(hi * 1.2)
+        lo, hi = length_range(want, is_event, unit)
+        lo, hi = int(lo * 0.7), int(hi * 1.6)   # 日により長さが違ってよい。極端な逸脱だけ見る
     else:
         lo, hi = 350, 800
     if not lo <= n <= hi:
@@ -252,7 +252,7 @@ def main():
             print("本番の日報がまだありません（investment_ai.db / daily_report）")
             return
     else:
-        items = json.load(open(SCENARIO, encoding="utf-8"))["timeline"]
+        items = [dict(m, unit="month") for m in json.load(open(SCENARIO, encoding="utf-8"))["timeline"]]
         unit, noun = "month", "か月"
 
     seen_heads = Counter()

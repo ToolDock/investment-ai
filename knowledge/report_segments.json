@@ -4,7 +4,7 @@
   "how": "always は必ず入れる。それ以外は trigger を満たしたときだけ入れる。順序はこのファイルの並びどおり。",
   "note": "データが取れていない話題は候補にしない。埋めない・触れない。",
   "trigger_month": "月次（実験）では値動きが日次より大きいため、閾値を約2倍にした別の trigger_month を使う。無ければ trigger を使う。本番（日次）は trigger のまま。",
-  "month_max_segments": 6,
+  "month_max_segments": 5,
   "month_drop_order": [
    "semis",
    "crypto",

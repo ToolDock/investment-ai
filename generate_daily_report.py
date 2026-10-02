@@ -145,6 +145,8 @@ __PERIOD_RULE__
 - headline は25字以内。事実を並べる形にする（例：「雇用が弱含み、金利低下で株は上昇」）。
   相場が大きく崩れた__PERIOD__は結論を出してよいが（例：「歴史的な下落、それでも売らない」）、
   平常の__PERIOD__は結論を主張せず、事実の要約にとどめる。
+- JSON は一つだけ出す。コードフェンス（```）、前置き、「訂正します」のような断り書き、
+  2つ目の JSON を付けない。直したくなっても、直した完全版を黙って一つだけ出す。
 - blocks の数は、下の「本文の構成」または「取り上げる話題」の指示に従う。
 - chart は、その段落が語っている内容そのものを示す図があるときだけ付ける。無ければ null。
 - 図を付けるのは全体で1〜2個まで。すべての段落に付けない。
@@ -387,8 +389,19 @@ PER_BLOCK = (110, 160)
 PER_BLOCK_EVENT = (130, 190)
 
 
-def length_range(n_topics, is_event=False):
-    lo, hi = PER_BLOCK_EVENT if is_event else PER_BLOCK
+# 月次（実験）は1段落を短くして、60か月を通して読む量を抑える（2026-10-02、長すぎるとの確認で）
+PER_BLOCK_MONTH = (85, 125)
+PER_BLOCK_MONTH_EVENT = (105, 150)
+
+
+def per_block(is_event=False, unit="day"):
+    if unit == "month":
+        return PER_BLOCK_MONTH_EVENT if is_event else PER_BLOCK_MONTH
+    return PER_BLOCK_EVENT if is_event else PER_BLOCK
+
+
+def length_range(n_topics, is_event=False, unit="day"):
+    lo, hi = per_block(is_event, unit)
     return lo * n_topics, hi * n_topics
 
 
@@ -544,22 +557,28 @@ def structure_section(m, is_event, word):
     """
     segs = select_segments(m)
     n = len(segs)
-    per_lo, per_hi = PER_BLOCK_EVENT if is_event else PER_BLOCK
-    lo, hi = length_range(n, is_event)
     unit = m.get("unit", "month")
+    per_lo, per_hi = per_block(is_event, unit)
+    lo, hi = length_range(n, is_event, unit)
     topics = "\n".join(f"{i}. {_unitize(s['title'], unit)}："
                         f"{_unitize(s.get('guide_month') if unit == 'month' and s.get('guide_month') else s['guide'], unit)}"
                         for i, s in enumerate(segs, 1))
+    max_charts = "2" if unit == "month" else "3"
     return f"""# {word}取り上げる話題（この順に、1話題ずつ1段落。見出しは付けず地の文で）
 {topics}
 
 - blocks はちょうど{n}個にする。話題を飛ばさない、足さない。
 - 全体で{lo}〜{hi}字。1段落あたり{per_lo}〜{per_hi}字程度。
-- 図は、その段落の話題に対応するものが「本文で使ってよい図」にあれば、できるだけ付ける
+- 図は、その段落の話題に対応するものが「本文で使ってよい図」にあれば付ける
   （読者が文章だけでなく図も見ながら追えるようにするため）。ただし無理にひねり出さず、
   噛み合わない段落は chart を null にする。同じ図を2段落以上で使い回さない。
+  図は全体で{max_charts}枚までにする。
 - 与えられていない数値・銘柄・出来事を持ち出さない。取れていない項目には触れない。
-- 話題をただ並べるのではなく、前の段落から自然につなぐ。"""
+- 話題をただ並べるのではなく、前の段落から自然につなぐ。
+- 同じ言い回しを繰り返さない。「〜と伝えられています」は全体で2回まで、「再現性のある戦略」
+  のような決めの表現は全体で1回まで。報道の引用は、媒体名を毎回付けず、必要なときだけにする。
+- 図を指すときは「図の通り」「図を見ると」と言うだけにせず、図に何が描かれているか（例：
+  「開始を100とした指数の歩み」）を一言添える。"""
 
 
 def build_user_prompt(m, kb, prev=None):
@@ -626,6 +645,27 @@ def build_user_prompt(m, kb, prev=None):
 出力は JSON のみ。本文を JSON の外に書かないこと。{prev_line}"""
 
 
+def _json_candidates(text):
+    """text の中から、blocks を持つ JSON オブジェクトを、後ろに書かれたものから順に返す。
+
+    モデルが ```json のコードフェンスで囲んだり、「訂正します」と書いて2つ目を出し直したり
+    することがある（2026-10-02、全60本の再生成で5本が壊れた）。最初の { から最後の } までを
+    ひとかたまりと見ると、そうした応答はすべて読めなくなる。
+    """
+    dec = json.JSONDecoder(strict=False)   # 文字列の中の生の改行も許す
+    found = []
+    i = text.find("{")
+    while i != -1:
+        try:
+            obj, end = dec.raw_decode(text, i)
+            if isinstance(obj, dict) and isinstance(obj.get("blocks"), list):
+                found.append(obj)
+            i = text.find("{", end)
+        except json.JSONDecodeError:
+            i = text.find("{", i + 1)
+    return list(reversed(found))
+
+
 def parsed_ok(text, blocks):
     """JSON として正しく読めたか。推敲版を採るかどうかの判断に使う。
 
@@ -633,19 +673,25 @@ def parsed_ok(text, blocks):
     「途中で切れた応答」と「ちゃんと書けた応答」を区別できない。
     """
     t = (text or "").strip()
-    if not blocks or not t.endswith("}"):
+    if not blocks:
         return False
-    return not (len(blocks) == 1 and blocks[0].get("text", "").startswith("{"))
+    if _json_candidates(t):
+        return True
+    return t.endswith("}") and not (len(blocks) == 1 and blocks[0].get("text", "").startswith("{"))
 
 
 def _parse(text):
     """blocks を取り出す。旧形式や素の本文で返ってきても落とさない。"""
     t = (text or "").strip()
-    cand = t[t.index("{"):t.rindex("}") + 1] if ("{" in t and "}" in t) else t
-    try:
-        d = json.loads(cand)
-    except json.JSONDecodeError:
-        return ([{"text": t, "chart": None}] if t else [])
+    cands = _json_candidates(t)
+    if cands:
+        d = cands[0]
+    else:
+        cand = t[t.index("{"):t.rindex("}") + 1] if ("{" in t and "}" in t) else t
+        try:
+            d = json.loads(cand, strict=False)
+        except json.JSONDecodeError:
+            return ([{"text": t, "chart": None}] if t else [])
 
     headline = (d.get("headline") or "").strip()
     if isinstance(d.get("blocks"), list):
@@ -685,7 +731,7 @@ REVISE_PROMPT = """上はあなたが書いた下書きです。読者に届く�
 - 読者が声に出して読んだときに、詰まらずに流れるか
 
 字数は変えなくてよい。全面的に書き直す必要はなく、効く箇所だけ直す。
-出力は下書きと同じ JSON の形式のみ。"""
+出力は下書きと同じ JSON の形式のみ。コードフェンスや断り書きを付けず、JSON を一つだけ出す。"""
 
 
 def generate_report(m, kb, prev=None, system=None):
@@ -716,12 +762,20 @@ def generate_report(m, kb, prev=None, system=None):
             print(f"  ! {label}: 推敲版が壊れていたので下書きを採用します", flush=True)
 
     blocks = _parse(text)
+    # 締めの決まり文句は固定文。書き忘れていたら足す
+    unit_ = m.get("unit", "month")
+    closing = closing_line(unit_)
+    if blocks and parsed_ok(text, blocks):
+        last = blocks[-1]
+        if re.sub(r"\s+", "", closing) not in re.sub(r"\s+", "", last["text"])[-len(closing) - 6:]:
+            last["text"] = last["text"].rstrip() + "\n" + closing
+            print(f"  ! {label}: 締めの決まり文句が無かったので足しました", flush=True)
     with open(RAW_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps({"key": label, "phase": m["phase"],
                             "raw": text, "blocks": blocks}, ensure_ascii=False) + "\n")
     if not blocks:
         print(f"  ! {label}: 本文が空です（{RAW_LOG} を確認）", flush=True)
-    elif not text.strip().endswith("}"):
+    elif not parsed_ok(text, blocks):
         print(f"  ! {label}: 応答が途中で切れた可能性（{RAW_LOG} を確認）", flush=True)
     return blocks, usage
 
