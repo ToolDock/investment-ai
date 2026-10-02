@@ -45,8 +45,14 @@ def _scroll_to_top():
     # 全要素を走査して実際にスクロールしているものを探す、(2) chat_input側にフォーカスが
     # 残っているとブラウザがそちらへスクロールを戻すことがあるのでフォーカスも外す、
     # (3) 試行回数・期間を増やす、の3点で堅牢にした
-    st.iframe(
-        """<script>
+    #
+    # 2回目以降に効かなくなる原因（2026-10-02、実ブラウザで再現）：月を進めるボタンは
+    # st.fragment の中にあり、フラグメントの再実行は上のスクリプトを走らせ直さない。
+    # そのため、前の月で描いたこの iframe と今回の iframe が「同一の要素」と見なされて
+    # 作り直されず、中のスクリプトが動かない（最初の1回だけ効く）。呼ぶたびに中身が変わる
+    # ように、通し番号をコメントとして埋め込む
+    st.session_state["_scroll_n"] = st.session_state.get("_scroll_n", 0) + 1
+    _html = """<script>// run NONCE
         const sels = ['[data-testid="stMain"]', '[data-testid="stAppViewContainer"]',
                       '[data-testid="stMainViewContainer"]',
                       '[data-testid="stMainBlockContainer"]',
@@ -71,11 +77,10 @@ def _scroll_to_top():
           window.parent.scrollTo(0, 0);
         }
         [0, 60, 200, 500, 900, 1500].forEach(t => setTimeout(toTop, t));
-        </script>""",
-        # st.iframe は 0 を受け付けない版がある（1.64で確認: StreamlitInvalidHeightError）。
-        # 月を進めた直後の再実行でこの例外が出ないよう、最小の1pxにしておく（2026-09-30）
-        height=1,
-    )
+        </script>""".replace("NONCE", str(st.session_state["_scroll_n"]))
+    # st.iframe は 0 を受け付けない版がある（1.64で確認: StreamlitInvalidHeightError）。
+    # 月を進めた直後の再実行でこの例外が出ないよう、最小の1pxにしておく（2026-09-30）
+    st.iframe(_html, height=1)
 
 
 if st.session_state.pop("scroll_top", False):
