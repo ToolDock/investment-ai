@@ -126,6 +126,9 @@ def compute_slot(overconfidence, history, kb=None):
             return "after_sell"
 
         if _is_buy_action(last.get("action")):
+            # 下落局面で買い増したときは、その事実を肯定する別枠にする
+            if last.get("phase") in ("暴落", "安定下落"):
+                return "after_buy_dip"
             return "after_buy"
 
         if last.get("phase") == "暴落":
@@ -290,6 +293,31 @@ def milestone_sentence(asset_history, timeline, month, kb=None):
     return " ".join(sentences) if sentences else None
 
 
+def edge_sentence(history, month, state, timeline, asset_history, milestone_fired=False, kb=None):
+    """指数はまだ最高値に戻っていないのに、自分の資産は先に含み益へ戻っているとき、
+    その差を「安いときに買い続けた成果」として返す一文。
+
+    一度も売っていない人にだけ出す（売っていると、この説明が事実と違うため）。
+    過去に含み損の時期があった場合に限る（最初からプラスだっただけの人には言わない）。
+    毎月出すと単調になるので、偶数月か、含み益に転じた節目の月だけ出す。
+    """
+    if state is None or timeline is None or asset_history is None or month < 2:
+        return None
+    if behavior_counts(history)["sell"] > 0:
+        return None
+    dd = timeline[month - 1]["market_context"]["drawdown"]["current"]
+    pl = state["pl_pct"]
+    if dd > -3.0 or pl <= 0:
+        return None
+    if min(h["pl_pct"] for h in asset_history[:month]) >= 0:
+        return None
+    if not milestone_fired and month % 2 != 0:
+        return None
+    kb = kb or load_slots()
+    texts = kb["edge_recovery"]["texts"]
+    return texts[(month // 2) % len(texts)].format(dd=f"{abs(dd):.1f}%", pl=f"{pl:+.2f}%")
+
+
 def build_overlay_block(overconfidence, history, month, state=None, kb=None,
                          asset_history=None, timeline=None):
     """今月の群3追加ブロックと、記録用のスロットIDを返す。
@@ -315,6 +343,10 @@ def build_overlay_block(overconfidence, history, month, state=None, kb=None,
     milestone = milestone_sentence(asset_history, timeline, month, kb)
     if milestone:
         parts.append(milestone)
+    edge = edge_sentence(history, month, state, timeline, asset_history,
+                         milestone_fired=bool(milestone and "プラス" in milestone), kb=kb)
+    if edge:
+        parts.append(edge)
     occurrence = _slot_occurrence_index(overconfidence, history, kb, slot_id) if history else None
     parts.append(pick_text(slot_id, month, kb, occurrence=occurrence))
 

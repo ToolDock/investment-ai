@@ -3,6 +3,7 @@ import streamlit as st
 from utils.post_survey import LIKERT5, FREE, ATTENTION, items_for, recall_for
 from utils.storage import save_post_survey, mark_survey_done, get_completion_info
 from utils.components.ui_scale import render_scale_control, inject_scale_css
+from utils.components.scroll import scroll_to_top
 
 st.set_page_config(page_title="事後アンケート", layout="centered")
 
@@ -21,6 +22,8 @@ def _show_completion(sid):
     貼り付けられた値は、DBの報酬額と payout_report.py で照合する。2026-10-01
     """
     info = get_completion_info(sid) or {}
+    # 前の画面でスクロールしたまま来ても、完了コードが見える位置から始める
+    scroll_to_top("_scrolled_done")
     st.success("ご協力ありがとうございました。実験はすべて終了です。")
     if st.session_state.pop("_just_finished", False):
         st.balloons()
@@ -63,6 +66,7 @@ if _sid:
         _show_completion(_sid)
         st.stop()
 
+scroll_to_top("_scrolled_survey")
 st.title("事後アンケート")
 st.write("シミュレーションはこれで終わりです。最後にいくつか質問させてください。")
 

@@ -30,6 +30,17 @@ REPORT = [
     {"id": "rep_again", "text": "実際の投資でも、こうした日報があれば使いたいと思いますか", "layer": "評価"},
 ]
 
+# 群2・群3のみ。対話AI（質問機能）について。日報の設問と同じ層で切り分ける
+DIALOGUE = [
+    {"id": "dlg_asked", "text": "対話AIに、自分から積極的に質問しましたか", "layer": "受容"},
+    {"id": "dlg_self", "text": "対話AIの答えは、あなた自身の資産の状況に触れていたと思いますか", "layer": "層2"},
+    {"id": "dlg_history", "text": "対話AIの答えは、あなたのこれまでの行動に触れていたと思いますか", "layer": "層3"},
+    {"id": "dlg_clear", "text": "対話AIの説明は、あなたにとって分かりやすかったですか", "layer": "層4"},
+    {"id": "dlg_useful", "text": "対話AIは、行動を決めるときの助けになりましたか", "layer": "評価"},
+    {"id": "dlg_trust", "text": "対話AIの答えは信頼できると感じましたか", "layer": "評価"},
+    {"id": "dlg_again", "text": "実際の投資でも、こうした対話AIがあれば使いたいと思いますか", "layer": "評価"},
+]
+
 # 注意チェック（クラウドソーシングでの不真面目回答をはじく）
 ATTENTION = {
     "id": "attention_check",
@@ -115,6 +126,6 @@ def items_for(group):
     """その群で出す5件法の設問を、表示順に返す。"""
     items = list(COMMON)
     if group != 1:
-        items += REPORT
+        items += REPORT + DIALOGUE
     items.append(ATTENTION)
     return items

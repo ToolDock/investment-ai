@@ -67,6 +67,11 @@ def check(m, hv, prev_texts, unit="month"):
     elif len(hl) > 25:
         warn.append(f"見出しが長い（{len(hl)}字）")
 
+    # 本文が「図」を指しているのに、その段落に図がない（画面では図が出ず、文だけが浮く）
+    for i, b in enumerate(blocks, 1):
+        if not b.get("chart") and re.search(r"(?<![指構意企試設])図[はのをでにが]|この図|下の図|上の図", b["text"]):
+            ng.append(f"{i}段落目が図を指しているが、その段落に図がない")
+
     # 構造。実験は2〜4段落、本番はその日に載せるべき話題の数と一致しているはず
     is_event = m["phase"] in EVENT_PHASES
     # 実験（月次）も本番と同じく、話題の数から段落数と字数の目安を決める

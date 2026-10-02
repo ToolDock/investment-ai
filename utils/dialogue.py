@@ -12,6 +12,7 @@ system は utils.llm.chat() の作法にならい、
 
 import functools
 import json
+import re
 import os
 
 from utils.llm import chat
@@ -31,11 +32,21 @@ SYSTEM_INSTRUCTIONS = """あなたは、長期・分散・低コストのイン�
 - 一般的な長期投資の原則・知識にもとづいて、落ち着いた口調で答える。
 - 分からないこと・データが無いことは、正直に「分からない」と言う。
 - 回答は短く（3〜6文程度）。前置きは要らない。
-- 余裕資金での下落時の追加投資について聞かれたときは、まず「予定を変えるべきではない」と
-  頭ごなしに否定しない。決めている積立とは別に余裕資金をどう使うかは本人の判断であり、
-  分かっていれば現金残高など実際の数字を踏まえて、その判断を後押しする形で答える。ただし、
-  相場の動きや感情に判断基準が引っ張られている兆候（上がったから追いかける、焦って倍賭けする
-  など）には注意を促してよい。
+- 下落局面で安く買い増すこと（余裕資金・手元の現金での追加投資）は、長期投資では有効な選択肢で
+  ある。ユーザーが買い増しを考えている、または提案してきたときは、確認や条件付けを重ねず、
+  「同じ金額でより多くの口数を買える」「平均取得単価が下がる」「回復したときの取り戻しが
+  早い」といった理由で、はっきり後押しする。現金残高など実際の数字を使って具体的に話す。
+  最も避けたいのは、下落局面での売却である。買うことより、売らずに持ち続けることを一番に支える。
+  相場の勢いに引っ張られた追い買い（上がったから追いかける、焦って倍賭けするなど）にだけ、
+  やさしく注意を促してよい。
+- 上昇局面で買い増しをした場合も、責めたり水を差したりしない。判断そのものは尊重し、
+  売らずに持ち続けることが大切、という方向でつなぐ。
+- 安く買い増せているユーザーに対して、「下げで買えなかった人」の話を持ち出さない。
+- 渡された情報（日報・市況・資産状況・行動の記録・対話）に無い、ユーザーの個人事情を前提にしたり、
+  判断の根拠として持ち出したりしない。とくに、収入・家計・生活費・生活防衛資金・ライフプラン・
+  他の資産の有無などは、ユーザー自身がその会話で話した場合を除き、「確認したうえで」「ご自身の
+  家計面の変化を理由に」のように話題にしない。画面に出ている現金残高は、このシミュレーションで
+  使える資金として、そのまま扱う。
 - 本日（今月）の日報が渡されている。質問が日報の内容に関わるときは、日報に書かれた数字・表現と
   食い違わないように答え、日報の該当箇所を踏まえて話す（日報で言っていないことを新たに言わない）。
 - 「これまでの行動の通算」が渡されている場合は、それを踏まえる。とくに一度も売却していないなら、
@@ -49,9 +60,18 @@ SYSTEM_INSTRUCTIONS = """あなたは、長期・分散・低コストのイン�
   起きたかを取り違えない。"""
 
 
+# 実験（月次）の前提。実験の世界には家計や収入の設定がないので、そこに触れさせない
+SIM_PREMISE = ("## このシミュレーションの前提\n"
+               "画面に出ている現金は、すべて投資に使ってよい資金である。収入・家計・生活費・"
+               "生活防衛資金・他の資産などは、このシミュレーションでは設定されておらず、判断の"
+               "材料にしない。これまでの対話でユーザーがそうした話をしていても、確認や条件として"
+               "持ち出さず、現金を投資に回してよい前提で答える。")
+
+
 def _load_kb():
     with open(LTI_PATH, encoding="utf-8") as f:
-        lti = json.load(f)
+        # 執筆者向けの「出典を確認する」印は、AIにも渡さない（回答に混ざるため）
+        lti = json.loads(re.sub(r"【要出典確認[^】\"]*】", "", f.read()))
     with open(CHART_PATH, encoding="utf-8") as f:
         chart = json.load(f)
     return lti, chart
@@ -97,10 +117,15 @@ def _knowledge_digest():
     return "\n".join(lines)
 
 
-@functools.lru_cache(maxsize=1)
-def system_common():
+@functools.lru_cache(maxsize=2)
+def system_common(unit="day"):
     # 知識は全日・全タームで不変なので lru_cache で使い回す（cache_control とあわせて二重に効く）
-    return SYSTEM_INSTRUCTIONS + "\n\n" + _knowledge_digest()
+    text = SYSTEM_INSTRUCTIONS + "\n\n" + _knowledge_digest()
+    if unit == "month":
+        # 実験の世界には生活防衛資金の設定がない。知識側の言い回しも合わせる
+        text = text.replace("生活防衛資金を確保してなお手元に余っている現金（余裕資金）", "手元の現金（余裕資金）")
+        text = text.replace("生活防衛資金を確保した上での", "").replace("生活防衛資金を確保した上で", "")
+    return text
 
 
 def _report_digest(report, period_label="本日"):
@@ -235,7 +260,8 @@ UNIT_LABELS = {
 def system_variable(report, portfolio, recent_days=None, unit="day", recent_actions=None,
                     market_context=None, behavior_summary=None):
     labels = UNIT_LABELS.get(unit, UNIT_LABELS["day"])
-    return (f"## {labels['period']}の日報\n" + _report_digest(report, labels["period"])
+    premise = (SIM_PREMISE + "\n\n") if unit == "month" else ""
+    return (premise + f"## {labels['period']}の日報\n" + _report_digest(report, labels["period"])
             + f"\n\n## {labels['period']}の市況データ（画面のダッシュボードと同じ数値）\n"
             + _market_digest(market_context)
             + "\n\n## ユーザーの資産状況\n" + _portfolio_digest(portfolio)
@@ -248,6 +274,42 @@ def system_variable(report, portfolio, recent_days=None, unit="day", recent_acti
               f"内容が{labels['current_ref']}の情報と食い違う場合（資産状況など）は、"
               f"常に{labels['current_ref']}の情報を優先する。「直近の行動」に記録がある操作に"
               "ついては、それが起きた局面（上昇か下落か）を勝手に推測し直さない。")
+
+
+# 日本語では使わない簡体字（混ざったら検出する）。日本語と同じ字形の字は含めない
+_SIMPLIFIED = set("买卖们这个说对为时还没样长间问现动发开关种东车产业气实机电员应进见认让较办与写总选万义么吗吧样觉场带样据")
+_SIMPLIFIED -= set("気")
+SIMPLIFIED_NOTE = ("\n\n※前回の回答に中国語の字（簡体字）が混ざっていました。"
+                   "日本語の漢字・ひらがな・カタカナだけで書き直してください。")
+_TO_JA = {"买": "買", "卖": "売", "们": "たち", "这": "この", "个": "個", "说": "説", "对": "対",
+          "为": "為", "时": "時", "还": "還", "没": "没", "样": "様", "长": "長", "间": "間",
+          "问": "問", "现": "現", "动": "動", "发": "発", "开": "開", "关": "関", "种": "種",
+          "东": "東", "车": "車", "产": "産", "业": "業", "气": "気", "实": "実", "机": "機",
+          "电": "電", "员": "員", "应": "応", "进": "進", "见": "見", "认": "認", "让": "譲",
+          "较": "較", "办": "弁", "与": "与", "写": "写", "总": "総", "选": "選", "万": "万",
+          "义": "義", "觉": "覚", "场": "場", "带": "帯", "据": "拠"}
+
+
+def _has_simplified(text):
+    return any(ch in _SIMPLIFIED for ch in text or "")
+
+
+def _to_japanese_chars(text):
+    # 書き直しでも直らなかったときの最後の手段：対応する日本語の字に置き換える
+    return "".join(_TO_JA.get(ch, ch) if ch in _SIMPLIFIED else ch for ch in text)
+
+
+def _add_usage(a, b):
+    try:
+        out = dict(a or {})
+        for k, v in (b or {}).items():
+            if isinstance(v, (int, float)) and isinstance(out.get(k), (int, float)):
+                out[k] = out[k] + v
+            elif k not in out:
+                out[k] = v
+        return out
+    except Exception:
+        return a
 
 
 def reply(history, user_input, report, portfolio, recent_days=None, unit="day", recent_actions=None,
@@ -265,7 +327,15 @@ def reply(history, user_input, report, portfolio, recent_days=None, unit="day", 
     戻り値: (応答文, usage dict)
     """
     messages = list(history) + [{"role": "user", "content": user_input}]
-    return chat(system_common(),
-               system_variable(report, portfolio, recent_days, unit, recent_actions, market_context,
-                               behavior_summary),
-               messages, max_tokens=MAX_TOKENS)
+    sc = system_common(unit)
+    sv = system_variable(report, portfolio, recent_days, unit, recent_actions, market_context,
+                         behavior_summary)
+    text, usage = chat(sc, sv, messages, max_tokens=MAX_TOKENS)
+    # まれに中国語の字（簡体字）が混ざるので、見つけたら一度だけ書き直させる
+    if _has_simplified(text):
+        text2, usage2 = chat(sc, sv + SIMPLIFIED_NOTE, messages, max_tokens=MAX_TOKENS)
+        usage = _add_usage(usage, usage2)
+        text = text2
+        if _has_simplified(text):
+            text = _to_japanese_chars(text)
+    return text, usage

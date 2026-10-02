@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import streamlit as st
 
@@ -15,7 +16,10 @@ KB_PATH = os.path.join(
 @st.cache_data
 def load_knowledge():
     with open(KB_PATH, encoding="utf-8") as f:
-        return json.load(f)
+        raw = f.read()
+    # 執筆者向けの「出典を確認する」印は、参加者の画面に出さない
+    raw = re.sub(r"【要出典確認[^】\"]*】", "", raw)
+    return json.loads(raw)
 
 
 def _relevant_quotes(kb, phase, situation=None):

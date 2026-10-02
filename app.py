@@ -37,8 +37,16 @@ st.markdown("---")
 if is_test_mode():
     st.caption("🔧 動作確認モード：参加者の集計・報酬には含まれません。")
 _prior = prior_participant_sid()
-if _prior and get_completion_info(_prior) is None:
+_prior_info = get_completion_info(_prior) if _prior else None
+if _prior and _prior_info is None:
     _prior = None      # 記録が無いセッションIDは無視する（DBの入れ替え後など）
+
+if _prior and _prior_info.get("survey_done"):
+    # 最後まで終えている人には、完了コードと確認値を出す画面をそのまま見せる
+    # （提出前に画面を閉じてしまった人が、値を確認し直せるように）
+    st.session_state["session_id"] = _prior
+    st.session_state.pop("survey_done", None)
+    st.switch_page("pages/03_post_survey.py")
 
 if _prior:
     st.subheader("すでに参加が記録されています")
