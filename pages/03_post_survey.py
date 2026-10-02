@@ -4,6 +4,7 @@ from utils.post_survey import LIKERT5, FREE, ATTENTION, items_for, recall_for
 from utils.storage import save_post_survey, mark_survey_done, get_completion_info
 from utils.components.ui_scale import render_scale_control, inject_scale_css
 from utils.components.scroll import scroll_to_top
+from utils.rank import reward_rank, rank_task_url
 
 st.set_page_config(page_title="事後アンケート", layout="centered")
 
@@ -16,10 +17,10 @@ PAYMENT_NOTE = ("提出いただいた内容を、シミュレーションの結
 
 
 def _show_completion(sid):
-    """アンケート送信後の完了画面。完了コードと確認値、結果を出す。
+    """アンケート送信後の完了画面。完了コードと成績ランク、追加報酬タスクへの案内を出す。
 
-    確認値は報酬額そのものだが、画面では金額と明示しない（値だけを貼り付けてもらう）。
-    貼り付けられた値は、DBの報酬額と payout_report.py で照合する。2026-10-01
+    金額そのものは画面に出さない。ランクに対応する追加報酬タスクで、完了コードを提出して
+    もらい、DBのランクと payout_report.py --tier で照合する。2026-10-02
     """
     info = get_completion_info(sid) or {}
     # 前の画面でスクロールしたまま来ても、完了コードが見える位置から始める
@@ -29,15 +30,23 @@ def _show_completion(sid):
         st.balloons()
 
     code = info.get("resume_code") or st.session_state.get("resume_code")
-    value = info.get("reward_yen")
-    if code and value is not None:
-        st.markdown("### 提出するもの")
-        st.markdown("次の2つを、**表示されているとおりに**コピーして、クラウドワークスの回答欄に貼り付けてください。"
-                    "誤ると正しく報酬をお支払いできません。")
-        st.markdown("**完了コード**")
+    rank = reward_rank(info.get("reward_yen"))
+    if code and rank:
+        st.markdown("### 報酬を受け取るために、あと2つ提出してください")
+        st.warning("**この画面を閉じる前に、下の①と②の両方を、クラウドワークスで提出してください。**"
+                   "②を提出しないと、追加報酬は支払われません。")
+        st.markdown("**あなたの完了コード**（表示されているとおりにコピーしてください）")
         st.code(code)
-        st.markdown("**確認値**（値だけを貼り付けてください）")
-        st.code(str(value))
+        st.markdown(f"**あなたの成績ランク：ランク {rank}**")
+        st.info("**① いま受けているタスクに、上の完了コードを提出する**\n\n"
+                "（実験の募集ページに戻り、完了コードを貼り付けて提出します。これで参加賞が支払われます）")
+        url = rank_task_url(rank)
+        st.info(f"**② 追加報酬のタスク「追加報酬 ランク{rank}」に、同じ完了コードを提出する**\n\n"
+                f"（クラウドワークスで「【実験参加者限定】追加報酬 ランク{rank}」を探して提出します。"
+                "ランクが違うタスクに提出しても支払われません）")
+        if url:
+            st.link_button(f"② 追加報酬 ランク{rank} のタスクを開く", url, type="primary")
+        st.caption("この画面を閉じてしまっても、同じブラウザでこの実験のURLを開くと、この画面がもう一度表示されます。")
     else:
         st.warning("提出用の情報を表示できませんでした。このまま画面を閉じず、"
                    "クラウドワークスのメッセージでお知らせください。")
