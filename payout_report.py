@@ -29,7 +29,8 @@ def load_db():
                   ps.survey_done_at
            FROM progress pr
            JOIN participants p ON p.session_id = pr.session_id
-           LEFT JOIN participant_status ps ON ps.session_id = pr.session_id"""
+           LEFT JOIN participant_status ps ON ps.session_id = pr.session_id
+           WHERE pr.session_id NOT IN (SELECT session_id FROM test_sessions)"""
     ).fetchall()
     conn.close()
     return {r[0]: {"group": r[1], "final_asset": r[2], "profit": r[3],

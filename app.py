@@ -5,6 +5,7 @@ import streamlit as st
 from utils.storage import (init_results_db, load_progress_by_code, get_progress_status,
                            get_completion_info)
 from utils.components.ui_scale import render_scale_control, inject_scale_css
+from utils.participation_guard import is_test_mode, prior_participant_sid
 
 st.set_page_config(
     page_title="長期投資実験",
@@ -31,46 +32,64 @@ if status:
 
 st.markdown("---")
 
-# 募集ページごとに URL の ?g=2 / ?g=3 で群を固定する（参加者に群の名前を見せない）。
-# 指定がないときだけ、従来どおり選択欄を出す（開発・確認用）
-_GROUP_LABELS = ["群1（知識のみ）", "群2（AIあり）", "群3（パーソナライズ）"]
-_g = st.query_params.get("g")
-if _g in ("1", "2", "3"):
-    group = _GROUP_LABELS[int(_g) - 1]
+# 二度目の参加を防ぐ。同じブラウザで以前に参加していたら、新しく始められないようにする
+# （?test=1 を付けた動作確認では通す）
+if is_test_mode():
+    st.caption("🔧 動作確認モード：参加者の集計・報酬には含まれません。")
+_prior = prior_participant_sid()
+if _prior and get_completion_info(_prior) is None:
+    _prior = None      # 記録が無いセッションIDは無視する（DBの入れ替え後など）
+
+if _prior:
+    st.subheader("すでに参加が記録されています")
+    st.info(
+        "この実験への参加は、お一人につき1回です。このブラウザでは、すでに参加が記録されています。\n\n"
+        "続きから再開する、または完了画面を表示するには、下の「再開番号」を入力してください"
+        "（シミュレーションの画面の左側、または最後の完了画面に表示されていた6桁の番号です）。"
+        "番号が分からない場合は、クラウドワークスのメッセージでお知らせください。"
+    )
 else:
-    group = st.selectbox("実験群を選択してください", _GROUP_LABELS)
-
-st.subheader("研究へのご協力のお願い")
-st.markdown(
-    """
-この実験は、長期投資を続けるときの情報の提供のしかたが、投資の判断にどう影響するかを調べる研究です。
-仮想の資金で、60か月分の積立投資をシミュレーションしていただきます（現実のお金は動きません）。
-
-**記録するもの**：年齢・性別・投資経験・金融知識に関する設問への回答、シミュレーション中の売買などの選択、
-アンケートへの回答、AIとの対話の内容。氏名・メールアドレス・住所など、個人を特定する情報は集めません。
-ニックネームは画面上の表示にのみ使い、記録しません。
-
-**データの扱い**：研究の目的にのみ使い、結果は統計的にまとめて発表します。個人が特定される形では公表しません。
-
-**参加について**：参加は任意です。途中でやめても不利益はありません。
-途中でやめたい場合は、画面を閉じてください（再開番号を使えば、開始から1週間は続きから再開できます）。
-"""
-)
-consented = st.checkbox("上記の内容を読み、同意して参加します")
-
-if st.button("実験開始", disabled=not consented):
-
-    if "群1" in group:
-        st.session_state.group = 1
-    elif "群3" in group:
-        st.session_state.group = 3
+    # 募集ページごとに URL の ?g=2 / ?g=3 で群を固定する（参加者に群の名前を見せない）。
+    # 指定がないときだけ、従来どおり選択欄を出す（開発・確認用）
+    _GROUP_LABELS = ["群1（知識のみ）", "群2（AIあり）", "群3（パーソナライズ）"]
+    _g = st.query_params.get("g")
+    if _g in ("1", "2", "3"):
+        group = _GROUP_LABELS[int(_g) - 1]
     else:
-        st.session_state.group = 2
-    st.session_state.turn = 0
-    # 同意した日時。参加者が登録される事前アンケートの送信時に、DBへ記録する
-    st.session_state.consented_at = datetime.now().isoformat()
+        group = st.selectbox("実験群を選択してください", _GROUP_LABELS)
 
-    st.switch_page("pages/01_pre_questionnaire.py")
+    st.subheader("研究へのご協力のお願い")
+    st.markdown(
+        """
+    この実験は、長期投資を続けるときの情報の提供のしかたが、投資の判断にどう影響するかを調べる研究です。
+    仮想の資金で、60か月分の積立投資をシミュレーションしていただきます（現実のお金は動きません）。
+
+    **記録するもの**：年齢・性別・投資経験・金融知識に関する設問への回答、シミュレーション中の売買などの選択、
+    アンケートへの回答、AIとの対話の内容。氏名・メールアドレス・住所など、個人を特定する情報は集めません。
+    ニックネームは画面上の表示にのみ使い、記録しません。
+
+    **データの扱い**：研究の目的にのみ使い、結果は統計的にまとめて発表します。個人が特定される形では公表しません。
+
+    **参加について**：参加は任意です。途中でやめても不利益はありません。
+    途中でやめたい場合は、画面を閉じてください（再開番号を使えば、開始から1週間は続きから再開できます）。
+    """
+    )
+    consented = st.checkbox("上記の内容を読み、同意して参加します")
+
+    if st.button("実験開始", disabled=not consented):
+
+        if "群1" in group:
+            st.session_state.group = 1
+        elif "群3" in group:
+            st.session_state.group = 3
+        else:
+            st.session_state.group = 2
+        st.session_state.turn = 0
+        # 同意した日時。参加者が登録される事前アンケートの送信時に、DBへ記録する
+        st.session_state.consented_at = datetime.now().isoformat()
+
+        st.switch_page("pages/01_pre_questionnaire.py")
+
 
 st.markdown("---")
 st.subheader("途中から再開する")

@@ -189,6 +189,14 @@ def init_results_db():
         )
     """)
 
+    # 動作確認用のセッション（URLに ?test=1 を付けて始めたもの）。集計と報酬の計算から除くための印
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS test_sessions (
+            session_id TEXT PRIMARY KEY,
+            created_at TEXT
+        )
+    """)
+
     # 群3「提案AI対話」の会話ログ。本番（investment_ai.db の dialogue_log、report_date区切り）
     # と同じ役割を、実験では session_id・month区切りで持つ（1参加者が60か月を通しでプレイする
     # ため、区切りは日付ではなく月）。本番用の utils.dialogue.reply() をそのまま再利用できるよう、
@@ -573,3 +581,15 @@ def get_completion_info(session_id):
         "final_asset": p[1], "profit": p[2], "reward_yen": p[3],
         "resume_code": pr[0] if pr else None,
     }
+
+
+def mark_test_session(session_id):
+    """動作確認用のセッションとして印を付ける。失敗しても実験は止めない。"""
+    try:
+        conn = get_connection()
+        conn.execute("INSERT OR IGNORE INTO test_sessions (session_id, created_at) VALUES (?, ?)",
+                     (session_id, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass

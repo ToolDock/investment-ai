@@ -2,7 +2,8 @@ import uuid
 import streamlit as st
 
 from utils.storage import (init_results_db, create_participant, save_fin_literacy, save_progress,
-                           record_consent)
+                           record_consent, mark_test_session, get_completion_info)
+from utils.participation_guard import is_test_mode, prior_participant_sid
 from utils.components.ui_scale import render_scale_control, inject_scale_css
 from utils.pre_survey import (
     GENDER_OPTIONS,
@@ -23,6 +24,11 @@ inject_scale_css()
 st.title("事前アンケート")
 
 init_results_db()
+
+# URLを直接開く・ブラウザバックで、二度目の参加に入り込ませない（?test=1 は除く）
+_prior = prior_participant_sid()
+if _prior and get_completion_info(_prior) is not None:
+    st.switch_page("app.py")
 
 # ブラウザバック等でこのページに戻ってきても、下の「シミュレーション開始」を
 # 押すと進行中のデータが無条件に上書きされてしまう。誤操作を防ぐため先に警告する
@@ -184,6 +190,14 @@ if submitted:
     st.session_state.turn = 0
     st.session_state.decisions = {}
     st.session_state.history = []
+    # 同じブラウザで二度目を始めたとき、前回の完了状態・進行位置・対話ログを持ち越さない
+    # （持ち越すと、新しい参加者がシミュレーションも事後アンケートも飛ばして完了画面になる）
+    st.session_state.month_idx = 0
+    for _k in ("simulation_done", "survey_done", "final_asset", "progress_status",
+               "_pers_saved", "attention_passed", "_just_finished", "scroll_top"):
+        st.session_state.pop(_k, None)
+    for _k in [k for k in st.session_state.keys() if str(k).startswith("dialogue_")]:
+        st.session_state.pop(_k, None)
 
     participant_no = create_participant(
         st.session_state.session_id,
@@ -201,6 +215,8 @@ if submitted:
     )
     st.session_state.participant_no = participant_no
     record_consent(st.session_state.session_id, st.session_state.get("consented_at"))
+    if is_test_mode():
+        mark_test_session(st.session_state.session_id)
 
     save_fin_literacy(participant_no, result["detail"])
 

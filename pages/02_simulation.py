@@ -8,6 +8,7 @@ from utils.storage import (
 )
 from utils.personalization import build_overlay_block, behavior_summary_text
 from utils.dialogue import reply as dialogue_reply
+from utils.participation_guard import remember_participation
 from utils.components.chart import draw_chart, draw_market_chart
 from utils.components.market_dashboard import show_market_dashboard
 from utils.components.news import show_news
@@ -79,6 +80,9 @@ def _scroll_to_top():
 
 if st.session_state.pop("scroll_top", False):
     _scroll_to_top()
+
+# 参加したことをブラウザに残す（同じブラウザでの二度目の参加を防ぐため）
+remember_participation(st.session_state.get("session_id"))
 
 scenario = load_scenario()
 timeline = scenario["timeline"]
