@@ -21,6 +21,14 @@ MONTHLY_BUDGET = 50000   # 毎月の余剰資金
 render_scale_control()
 inject_scale_css()
 
+# サイドバーやURLから直接開くと、同意の画面と群の割り当てを飛ばしてしまう。それを防ぐガード
+if "consented_at" not in st.session_state:
+    st.title("事前アンケート")
+    st.warning("実験がまだ開始されていません。「app」ページで説明を読み、同意してから始めてください。")
+    if st.button("appページに戻る", width="stretch"):
+        st.switch_page("app.py")
+    st.stop()
+
 st.title("事前アンケート")
 
 init_results_db()

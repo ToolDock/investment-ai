@@ -76,6 +76,22 @@ if _sid:
         _show_completion(_sid)
         st.stop()
 
+# シミュレーションを終えていない人が、サイドバーやURLから直接アンケートに入れないようにする
+# （終えたかどうかは、一度確かめたら session_state に覚えておく）
+if not st.session_state.get("_sim_done_ok"):
+    _gi = get_completion_info(_sid) if _sid else None
+    if _gi and _gi["sim_done"]:
+        st.session_state["_sim_done_ok"] = True
+    else:
+        st.title("事後アンケート")
+        st.warning("シミュレーションがまだ終わっていません。先にシミュレーションを最後まで進めてください。")
+        if _sid and st.session_state.get("resume_code"):
+            if st.button("シミュレーションに戻る", width="stretch"):
+                st.switch_page("pages/02_simulation.py")
+        elif st.button("appページに戻る", width="stretch"):
+            st.switch_page("app.py")
+        st.stop()
+
 scroll_to_top("_scrolled_survey")
 st.title("事後アンケート")
 st.write("シミュレーションはこれで終わりです。最後にいくつか質問させてください。")
