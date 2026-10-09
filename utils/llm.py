@@ -36,6 +36,7 @@ TIMEOUT = 120.0     # 秒。1回の呼び出しの上限
 THINKING = os.getenv("LLM_THINKING", "0") == "1"
 
 _no_thinking_param = False   # API がこの引数を受け付けなかったときに立てる
+_thinking_off = {"type": "disabled"}   # 思考を切る指定。モデルによって形が違う
 
 _client = None
 _resolved = {}
@@ -160,7 +161,7 @@ def _system_blocks(system_common, system_variable):
 
 
 def _call_anthropic(system_common, system_variable, messages, max_tokens, kind):
-    global _no_thinking_param
+    global _no_thinking_param, _thinking_off
     kw = dict(
         model=model_id(kind),
         max_tokens=max_tokens,
@@ -168,21 +169,29 @@ def _call_anthropic(system_common, system_variable, messages, max_tokens, kind):
         messages=messages,
     )
     if not THINKING and not _no_thinking_param:
-        kw["thinking"] = {"type": "disabled"}
-    try:
-        r = anthropic_client().messages.create(**kw)
-    except TypeError:
-        _no_thinking_param = True
-        kw.pop("thinking", None)
-        r = anthropic_client().messages.create(**kw)
-    except Exception as e:
-        # 引数を受け付けないモデルなら、一度だけ外して試す
-        if "thinking" in kw and "thinking" in str(e):
+        kw["thinking"] = dict(_thinking_off)
+    r = None
+    for _ in range(3):
+        try:
+            r = anthropic_client().messages.create(**kw)
+            break
+        except TypeError:
             _no_thinking_param = True
             kw.pop("thinking", None)
-            r = anthropic_client().messages.create(**kw)
-        else:
-            raise
+        except Exception as e:
+            msg = str(e)
+            if "thinking" not in kw or "thinking" not in msg:
+                raise
+            # モデルによって、思考を切る指定の形が違う。エラーが示す形があれば、それで一度やり直す
+            if "between_tools" in msg and kw["thinking"].get("type") != "between_tools":
+                _thinking_off = {"type": "between_tools"}
+                kw["thinking"] = dict(_thinking_off)
+            else:
+                _no_thinking_param = True
+                kw.pop("thinking", None)
+                print(f"  ! thinking引数が受け付けられなかったため外します: {msg[:200]}", flush=True)
+    if r is None:
+        raise RuntimeError("応答を取得できませんでした")
     text = "".join(b.text for b in r.content if getattr(b, "type", None) == "text")
     u = {
         "input": getattr(r.usage, "input_tokens", 0) or 0,
@@ -195,6 +204,12 @@ def _call_anthropic(system_common, system_variable, messages, max_tokens, kind):
     if getattr(r, "stop_reason", None) == "max_tokens":
         print("  ! 応答が max_tokens で打ち切られました", flush=True)
     _warn_hidden_tokens(u, text)
+    if u["output"] > len(text) * 2 + 200:
+        print(f"    blocks={[getattr(blk, 'type', '?') for blk in r.content]}", flush=True)
+    if not text.strip():
+        kinds = [getattr(blk, "type", "?") for blk in r.content]
+        print(f"  ! 本文が空です: stop_reason={getattr(r, 'stop_reason', None)} "
+              f"blocks={kinds} output={u['output']}", flush=True)
     return text, u
 
 
@@ -207,6 +222,7 @@ def _warn_hidden_tokens(u, text):
     if u["output"] > n * 2 + 200:
         print(f"  ! 出力{u['output']}トークンに対し本文は{n}字しかありません。"
               "思考トークンが混ざっている可能性があります", flush=True)
+        print(f"    thinking引数を外している={_no_thinking_param}", flush=True)
 
 
 def _call_openrouter(system_common, system_variable, messages, max_tokens, kind):
