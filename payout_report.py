@@ -120,7 +120,12 @@ def _extra_summary(rows, out_path):
     bad = Counter((r["段階"], r["状態"]) for r in rows if r["状態"] != "OK")
     if bad:
         lines += ["", "要確認の内訳:"] + [f"  {k[0]} {k[1]}: {v}" for k, v in bad.items()]
-    short = [r for r in ok if r.get("注意")]
+    # 短時間承認済.txt（1行1人のワーカーID）に載せた人は、短時間の一覧から外す
+    try:
+        done = {l.strip() for l in open("短時間承認済.txt", encoding="utf-8-sig") if l.strip()}
+    except OSError:
+        done = set()
+    short = [r for r in ok if r.get("注意") and r["ワーカー"] not in done]
     if short:
         lines += ["", f"OKだが所要時間が短い（{SHORT_MINUTES}分未満。承認前に目視で確認）: {len(short)}件"]
         lines += [f"  {r['段階']} {r['ワーカー']} {r['注意']}" for r in short]

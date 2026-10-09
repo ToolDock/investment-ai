@@ -17,8 +17,8 @@ BACKEND = os.getenv("LLM_BACKEND", "anthropic")
 MODEL_IDS = {
     "openrouter": {"chat": "anthropic/claude-sonnet-5",
                    "batch": "anthropic/claude-sonnet-5:batch"},
-    "anthropic": {"chat": "claude-sonnet-5",
-                  "batch": "claude-sonnet-5"},
+    "anthropic": {"chat": "claude-sonnet-5-5",
+                  "batch": "claude-sonnet-5-5"},
 }
 
 # 別名が使えない場合に備えて、実IDを直接指定できるようにしておく

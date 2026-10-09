@@ -143,8 +143,14 @@ if missing:
 if st.button("回答を送信して終了", width="stretch", disabled=missing):
     sid = st.session_state.get("session_id")
     if sid:
-        save_post_survey(sid, answers, texts)
-        mark_survey_done(sid)
+        try:
+            save_post_survey(sid, answers, texts)
+            mark_survey_done(sid)
+        except Exception:
+            st.error("送信できませんでした（通信の一時的なエラーの可能性があります）。"
+                     "このページを閉じずに、少し待ってから、もう一度「回答を送信して終了」を押してください。"
+                     "何度か試してもだめな場合は、クラウドワークスのメッセージでお知らせください。")
+            st.stop()
     # 注意チェックの通過可否は分析時に使う（この場では participants に触れない）
     st.session_state.attention_passed = (
         answers.get(ATTENTION["id"]) == ATTENTION["correct"])

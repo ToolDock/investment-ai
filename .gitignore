@@ -24,3 +24,28 @@ _sqlite_probe.db
 *.db-journal
 *.db-wal
 *.db-shm
+
+# クラウドワークスの結果CSVと照合の出力（ワーカーIDを含むのでpushしない）
+payout*.csv
+payout*.txt
+参加賞_*.csv
+/S.csv
+/A.csv
+/B.csv
+/C.csv
+/D.csv
+
+短時間承認済.txt
+
+pilot_*.csv
+exclude_sessions.txt
+pilot_dialogue.csv
+pilot_free_text.csv
+
+# 人手コーディングとLLM判定（参加者の発言を含む。コミットしない）
+coding_sheet*.xlsx
+coding_key.csv
+llm_*.csv
+
+# Excelの一時ファイル
+~$*

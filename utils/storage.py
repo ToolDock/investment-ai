@@ -233,17 +233,35 @@ def init_results_db():
     _results_db_ready = True
 
 
+def _retry(fn, tries=3, wait=1.0):
+    """通信の一時的な失敗（Tursoへの接続エラーなど）に備えて、数回やり直す。
+    やり直しても結果が変わらない書き込み（INSERT OR REPLACE／ON CONFLICT）にだけ使う。"""
+    import time
+    for i in range(tries):
+        try:
+            return fn()
+        except Exception:
+            if i == tries - 1:
+                raise
+            time.sleep(wait * (i + 1))
+
+
 def save_post_survey(session_id, answers, texts):
     """answers: {qid: 1-5}, texts: {qid: 自由記述}"""
     now = datetime.now().isoformat()
     rows = [(session_id, q, v, None, now) for q, v in answers.items()]
     rows += [(session_id, q, None, t, now) for q, t in texts.items() if (t or "").strip()]
-    conn = get_connection()
-    conn.executemany(
-        """INSERT OR REPLACE INTO post_survey
-           (session_id, qid, answer, text, created_at) VALUES (?, ?, ?, ?, ?)""", rows)
-    conn.commit()
-    conn.close()
+
+    def _do():
+        conn = get_connection()
+        try:
+            conn.executemany(
+                """INSERT OR REPLACE INTO post_survey
+                   (session_id, qid, answer, text, created_at) VALUES (?, ?, ?, ?, ?)""", rows)
+            conn.commit()
+        finally:
+            conn.close()
+    _retry(_do)
 
 
 def create_participant(session_id, group_no, age, gender,
@@ -521,7 +539,7 @@ def load_recent_dialogue_months(session_id, before_month, n_months=3):
 
 
 # 同意の説明文（app.py）を変えたら、この版の名前も変える。どの文面に同意したかを後から辿れるようにする
-CONSENT_VERSION = "2026-10-pilot-v3"
+CONSENT_VERSION = "2026-10-main-v1"
 
 
 def record_consent(session_id, consented_at=None):
@@ -543,14 +561,20 @@ def record_consent(session_id, consented_at=None):
 
 def mark_survey_done(session_id):
     """事後アンケートの送信（＝実験の完了）を記録する。最初の1回の日時だけ残す。"""
-    conn = get_connection()
-    conn.execute(
-        """INSERT INTO participant_status (session_id, survey_done_at) VALUES (?, ?)
-           ON CONFLICT(session_id) DO UPDATE SET
-               survey_done_at = COALESCE(participant_status.survey_done_at, excluded.survey_done_at)""",
-        (session_id, datetime.now().isoformat()))
-    conn.commit()
-    conn.close()
+    done_at = datetime.now().isoformat()
+
+    def _do():
+        conn = get_connection()
+        try:
+            conn.execute(
+                """INSERT INTO participant_status (session_id, survey_done_at) VALUES (?, ?)
+                   ON CONFLICT(session_id) DO UPDATE SET
+                       survey_done_at = COALESCE(participant_status.survey_done_at, excluded.survey_done_at)""",
+                (session_id, done_at))
+            conn.commit()
+        finally:
+            conn.close()
+    _retry(_do)
 
 
 def get_completion_info(session_id):
